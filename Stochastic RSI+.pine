@@ -1,0 +1,74 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified (electrifiedtrading)
+// @version=4
+study(title='Stochastic RSI+', shorttitle='Stoch RSI+', format=format.price, precision=2, resolution='') // v2
+
+kcolor = #0094FF
+dcolor = #FF6A00
+
+///////////////////////////////////////////////////
+// Input
+upperBand   = input(80, 'Upper Band', minval=50, maxval=100)
+lowerBand   = input(20, 'Lower Band', maxval=50, minval=0)
+
+smoothK     = input(3, 'K', minval=1)
+smoothD     = input(3, 'D', minval=1)
+
+src         = input(close, title='RSI Source')
+lengthRSI   = input(14, 'RSI Length', minval=1)
+lengthStoch = input(14, 'Stochastic Length', minval=1)
+k_mode      = input('SMA', 'K Mode', options=['SMA', 'EMA', 'WMA'])
+
+///////////////////////////////////////////////////
+// Calculation
+rsi1 = rsi(src, lengthRSI)
+stoch = stoch(rsi1, rsi1, rsi1, lengthStoch)
+k =
+  k_mode=='EMA' ? ema(stoch, smoothK) :
+  k_mode=='WMA' ? wma(stoch, smoothK) :
+  sma(stoch, smoothK)
+d = sma(k, smoothD)
+k_c = change(k)
+d_c = change(d)
+kd = k - d
+
+
+///////////////////////////////////////////////////
+// Visualization
+h0 = hline(upperBand, 'Upper Band', color=#606060)
+h1 = hline(lowerBand, 'Lower Band', color=#606060)
+fill(h0, h1, color=#9915FF, transp=95, title='Band Background')
+
+signalColor = k>lowerBand and d<upperBand and k>d and k_c>0 and d_c>0 ? kcolor :
+  k<upperBand and d>lowerBand and k<d and k_c<0 and d_c<0 ? dcolor : na
+kp = plot(k, 'K', color=kcolor)
+dp = plot(d, 'D', color=dcolor)
+fill(kp, dp, color = signalColor, transp=50, title='K-D')
+
+signalUp = not na(signalColor) and kd>0
+signalDown = not na(signalColor) and kd<0
+
+plot(signalUp ? kd : na, 'Signal Up', color=kcolor, style=plot.style_columns)
+plot(signalDown ? (kd+100) : na , 'Signal Down', color=dcolor, style=plot.style_columns, histbase=100)
+
+
+///////////////////////////////////////////////////
+// Alerts
+alertcondition(d<lowerBand,
+ '1: Over-sold',
+ 'Stoch RSI+: Over-sold\nD value below lower band. ({{ticker}})')
+alertcondition(d<lowerBand and k>d,
+ '2: Over-sold & Rising ▲',
+ 'Stoch RSI+ Over-sold & Rising ▲\nK>D and D value below lower band. ({{ticker}})')
+alertcondition(signalUp,
+ '3: Postitive (+) Momentum ▲',
+ 'Stoch RSI+: Postitive (+) Momentum ▲\nK&D rising ▲ within band. ({{ticker}})')
+alertcondition(d>upperBand,
+ '4: Over-bought',
+ 'Stoch RSI+: Over-bought\nD value above upper band. ({{ticker}})')
+alertcondition(d>upperBand and k<d,
+ '5: Over-bought & Falling ▼',
+ 'Stoch RSI+: Over-bought & Falling ▼\nK<D and D value above upper band. ({{ticker}})')
+alertcondition(signalDown,
+ '6: Negative (-) Momentum ▼',
+ 'Stoch RSI+: Negative (-) Momentum ▼\nK&D falling ▼ within band. ({{ticker}})')

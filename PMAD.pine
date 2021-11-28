@@ -1,0 +1,39 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © electrifiedtrading
+
+//@version=4
+study(title='Moving Average Periodical Divergence', shorttitle='PMAD')
+
+// Getting inputs
+src          = input(title='Source', type=input.source, defval=close)
+fast_mode    = input(title='Fast Mode', defval='SMA', options=['SMA', 'WMA', 'EMA'])
+fast_periods = input(2.0, minval=0.01, title='Fast Periods')
+slow_mode    = input(title='Slow Mode', defval='SMA', options=['SMA', 'WMA', 'EMA'])
+slow_periods = input(5.0, minval=0.02, title='Slow Periods')
+plen         = input(390, minval=1, title='Period Length')
+
+// Calculation
+fast_len = ceil(fast_periods * plen / timeframe.multiplier)
+slow_len = ceil(slow_periods * plen / timeframe.multiplier)
+fast_ma =
+ fast_mode=='EMA' ? ema(src, fast_len) :
+ fast_mode=='WMA' ? wma(src, fast_len) :
+ sma(src, fast_len)
+slow_ma =
+ slow_mode=='EMA' ? ema(src, slow_len) :
+ slow_mode=='WMA' ? wma(src, slow_len) :
+ sma(src, slow_len)
+
+// Plot colors
+col_grow_above = #26A69A
+col_grow_below = #FFCDD2
+col_fall_above = #B2DFDB
+col_fall_below = #EF5350
+col_macd = #0094ff
+col_signal = #ff6a00
+
+// Calculating
+hist = fast_ma - slow_ma
+plot(hist, title='Histogram', style=plot.style_columns, color=(hist>=0 ? (hist[1] < hist ? col_grow_above : col_fall_above) : (hist[1] < hist ? col_grow_below : col_fall_below) ), transp=0 )
+
+

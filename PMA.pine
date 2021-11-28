@@ -1,0 +1,21 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © electrifiedtrading
+
+// Since varying session lengths can exist, for simplicity, the user defines the number of minutes per day which is how most daily moving averages will be defined by the user.
+
+//@version=4
+study(title='Moving Average Periodical', shorttitle='PMA', overlay=true)
+
+src     = input(close, title='Source')
+periods = input(5.0, minval=0.01, title='Periods')
+mode    = input(title='Mode', defval='SMA', options=['SMA', 'WMA', 'EMA'])
+plen    = input(390, minval=1, title='Period Length')
+
+len = ceil(periods * plen / timeframe.multiplier)
+ma =
+ mode=='EMA' ? ema(src, len) :
+ mode=='WMA' ? wma(src, len) :
+ sma(src, len)
+
+plot(ma, color=color.red, linewidth=2, title='PMA')
+

@@ -1,0 +1,156 @@
+//@version=4
+study('Electrified Trend', overlay = true, format=format.price, precision=2, resolution='') // v2
+
+ATR = 'Average True Range', ATR1 = 'Major', ATR2 = 'Minor', DISPLAY = 'Display'
+WMA = 'WMA', EMA = 'EMA', SMA = 'SMA', VWMA = 'VWMA', VAWMA = 'VAWMA', MACD = 'MACD'
+
+mode1       = input(VAWMA,  'Mode', group=ATR1, options=[SMA,EMA,WMA,VWMA,VAWMA], tooltip='Selects which averaging function will be used to determine the ATR value.')
+atrPeriod1  = input(240,    'Period', group=ATR1, tooltip='The number of bars to use in calculating the ATR value.')
+atrM1       = input(11.0,   'Multiplier', group=ATR1, step=0.5, tooltip='The multiplier used when defining the super trend limits.')
+closeBars1  = input(3,      'Close Bars', group=ATR1, minval = 0, tooltip='The number of closed bars that have to exceed the super-trend value before the trend reversal is confirmed.')
+
+mode2       = input(VAWMA,  'Mode', group=ATR2, options=[SMA,EMA,WMA,VWMA,VAWMA], tooltip='Selects which averaging function will be used to determine the ATR value.')
+atrPeriod2  = input(120,    'Period', group=ATR2, tooltip='The number of bars to use in calculating the ATR value.')
+atrM2       = input(3.0,    'Multiplier', group=ATR2, step=0.5, tooltip='The multiplier used when defining the super trend limits.')
+closeBars2  = input(1,      'Close Bars', group=ATR2, minval = 0, tooltip='The number of closed bars that have to exceed the super-trend value before the trend reversal is confirmed.')
+
+
+vawma(src, len) =>
+    sum = 0.0
+    vol = 0.0
+    for m = 1 to len // m = triangular multiple
+        i = len - m
+        v = volume[i] * m
+        vol := vol + v
+        sum := sum + src[i] * v
+    sum/vol
+////
+
+getMA(series, mode, len) =>
+    mode==WMA ? wma(series, len) :
+      mode==EMA ? ema(series, len) :
+      mode==VWMA ? vwma(series, len) :
+      mode==VAWMA ? vawma(series, len) :
+      sma(series, len)
+////
+
+superTrendCore(m, h, l, atr, closeBars) =>
+    up = l-(m*atr)
+    up1 = nz(up[1], up)
+    up := l[1] > up1 ? max(up, up1) : up
+    dn = h+(m*atr)
+    dn1 = nz(dn[1], dn)
+    dn := h[1] < dn1 ? min(dn, dn1) : dn
+
+    var lastU = up1
+    var lastD = dn1
+    var trend = 0
+    var confirmation = 0
+    var unconfirmed = 0
+
+    // cover gap cases
+    if(trend != +1 and l > lastD)
+        trend := +1
+    else if(trend != -1 and h < lastU)
+        trend := -1
+    
+    // confirmed cases
+    else if(trend != +1 and h > lastD)
+        unconfirmed += 1
+        if(confirmation<closeBars and close[1]>lastD)
+            confirmation += 1
+        if(confirmation>=closeBars)
+            trend := +1       
+    else if(trend != -1 and l < lastU)
+        unconfirmed += 1
+        if(confirmation<closeBars and close[1]<lastU)
+            confirmation += 1
+        if(confirmation>=closeBars)
+            trend := -1
+
+    if(trend[1]!=trend)
+        lastU := up1
+        lastD := dn1
+        confirmation := 0
+        unconfirmed := 0
+    else
+        lastU := trend==+1 ? max(lastU, up1) : up1
+        lastD := trend==-1 ? min(lastD, dn1) : dn1
+        // Trend is clearly continuing?  Reset confirmation.
+        if(trend==+1 and dn1>dn1[1] or trend==-1 and up1<up1[1])
+            confirmation := 0
+            unconfirmed := 0
+
+    [trend, lastU, lastD, unconfirmed, unconfirmed[1]==0 and unconfirmed > 0, trend != trend[1]]
+///
+
+superTrend(m, p, mode, closeBars) =>
+    superTrendCore(m, high, low, getMA(tr, mode, p), closeBars)
+///
+
+getMacdSignal(src, fast_mode, fast_len, slow_mode, slow_len, signal_mode, signal_len, hist_c_len) =>
+    fast_ma = getMA(src, fast_mode, fast_len)
+    slow_ma = getMA(src, slow_mode, slow_len)
+    macd = fast_ma - slow_ma
+    signal = getMA(macd, signal_mode, signal_len)
+    hist = macd - signal
+
+    hist_c = change(hist, hist_c_len)
+    macd_c = change(macd)
+    signal_c = change(signal)
+
+    (macd_c>0 and hist_c>0 ? +1 : macd_c<0 and hist_c<0 ? -1 : 0) +
+      (signal<hist and signal_c>0 ? +1 : signal>hist and signal_c<0 ? -1 : 0) +
+      (macd<hist and macd>signal ? +1 : macd>hist and macd<signal ? -1 : 0)
+///
+
+macdSignal = getMacdSignal(
+  input(close, 'Source', group = MACD),
+  input(EMA, 'Fast Mode', group = MACD, options=[SMA, WMA, EMA]),
+  input(12,'Fast Length', group = MACD, minval=1),
+  input(EMA, 'Slow Mode', group = MACD, options=[SMA, WMA, EMA]),
+  input(26, 'Slow Length', group = MACD, minval=1),
+  input(SMA, 'Signal Mode', group = MACD, options=[SMA, WMA, EMA]),
+  input(9, 'Signal Smoothing', group = MACD, minval = 1),
+  input(2, 'Histogram Change Length', group = MACD, minval = 1))
+
+showsignals     = input(true, title='Show Buy/Sell Signals ?', group=DISPLAY)
+highlighting    = input(true, 'Highlighter On/Off ?', group=DISPLAY)
+
+// Plot Major
+[trend1, up1, dn1, unconfirmed1, warn1, reversal1] = superTrend(atrM1, atrPeriod1, mode1, closeBars1)
+up1Plot = plot(trend1==+1 ? up1 : na, title='Major Up Trend', style=plot.style_linebr, linewidth=2, color=unconfirmed1==0?color.green:color.yellow)
+dn1Plot = plot(trend1==-1 ? dn1 : na, title='Major Down Trend', style=plot.style_linebr, linewidth=2, color=unconfirmed1==0?color.red:color.yellow)
+plotshape(trend1 == +1 and trend1[1] == -1 ? up1 : na, title='UpTrend Begins', location=location.absolute, style=shape.circle, size=size.tiny, color=color.green)
+plotshape(trend1 == -1 and trend1[1] == +1 ? dn1 : na, title='DownTrend Begins', location=location.absolute, style=shape.circle, size=size.tiny, color=color.red)
+
+// Plot Minor
+[trend2, up2, dn2, unconfirmed2, warn2, reversal2] = superTrend(atrM2, atrPeriod2, mode2, closeBars2)
+plot(trend2==+1 ? up2 : na, title='Minor Up Trend', style=plot.style_linebr, linewidth=1, color=unconfirmed2==0?color.green:color.yellow)
+plot(trend2==-1 ? dn2 : na, title='Minor Down Trend', style=plot.style_linebr, linewidth=1, color=unconfirmed2==0?color.red:color.yellow)
+
+// Plot Signals
+var lastSignal = 0
+upSignal = lastSignal!=+1 and trend1 == +1 and trend1[1] == +1 and trend2 == +1 and trend2[1] == -1
+dnSignal = lastSignal!=-1 and trend1 == -1 and trend1[1] == -1 and trend2 == -1 and trend2[1] == +1
+if(upSignal)
+    lastSignal := +1
+else if(dnSignal)
+    lastSignal := -1
+plotshape(upSignal and showsignals ? up2 : na, title='▲', text='▲', location=location.absolute, style=shape.labelup, size=size.tiny, color=color.green, textcolor=color.white)
+plotshape(dnSignal and showsignals ? dn2 : na, title='▼', text='▼', location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.red, textcolor=color.white)
+
+// Highlight
+mPlot = plot(ohlc4, title='', style=plot.style_circles, linewidth=0)
+longFillColor = highlighting ? (trend1 == 1 ? color.green : color.white) : color.white
+shortFillColor = highlighting ? (trend1 == -1 ? color.red : color.white) : color.white
+fill(mPlot, up1Plot, title='UpTrend Highligter', color=longFillColor)
+fill(mPlot, dn1Plot, title='DownTrend Highligter', color=shortFillColor)
+
+// Alerts
+alertcondition(warn1 or reversal1, title='1) Warning Major', message='SuperTrend+ Warning Major ({{ticker}} {{interval}})')
+alertcondition(reversal1, title='2) Reversal Major', message='SuperTrend+ Reversal Major ({{ticker}} {{interval}})')
+alertcondition(warn2 or reversal2, title='3) Warning Minor', message='SuperTrend+ Warning ({{ticker}} {{interval}})')
+alertcondition(reversal2, title='4) Reversal Minor', message='SuperTrend+ Reversal ({{ticker}} {{interval}})')
+alertcondition(upSignal, title='5) ▲ Up (+)', message='SuperTrend+ Duo ▲ Up (+) ({{ticker}} {{interval}})')
+alertcondition(dnSignal, title='6) ▼ Down (-)', message='SuperTrend+ Duo ▼ Down (-) ({{ticker}} {{interval}})')

@@ -1,0 +1,93 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified (electrifiedtrading)
+
+//@version=4
+study(title='MACD+', resolution='')
+
+// Constants
+WMA = 'WMA', EMA = 'EMA', SMA = 'SMA'
+
+// Inputs
+src         = input(close, 'Source')
+fast_mode   = input(EMA, 'Fast Mode', options=[SMA, WMA, EMA])
+fast_len    = input(12,'Fast Length', minval=1)
+slow_mode   = input(EMA, 'Slow Mode', options=[SMA, WMA, EMA])
+slow_len    = input(26, 'Slow Length', minval=1)
+signal_mode = input(SMA, 'Signal Mode', options=[SMA, WMA, EMA])
+signal_len  = input(9, 'Signal Smoothing', minval = 1)
+hist_c_len  = input(2, 'Histogram Change Length', minval = 1)
+enable_bg   = input(true, 'Show Phase Colors')
+
+
+// Plot colors
+col_grow_above = #26A69A
+col_grow_below = #FFCDD2
+col_fall_above = #B2DFDB
+col_fall_below = #EF5350
+col_macd = #0094ff
+col_signal = #ff6a00
+
+// Calculation
+getMA(series, mode, len) =>
+  mode==WMA ? wma(series, len) :
+  mode==EMA ? ema(series, len) :
+  sma(series, len)
+fast_ma = getMA(src, fast_mode, fast_len)
+slow_ma = getMA(src, slow_mode, slow_len)
+macd = fast_ma - slow_ma
+signal = getMA(macd, signal_mode, signal_len)
+hist = macd - signal
+
+// Plotting
+
+// Plot the fill first so it is behind the histogram..
+macdPlot = plot(macd, color=na, display=display.none, title='Fill Line Top')
+signalPlot = plot(signal, color=na, display=display.none, title='Fill Line Bottom')
+fill(macdPlot, signalPlot, hist > 0 ? col_macd : hist < 0 ? col_signal : color.gray, 75, 'Fill', true)
+
+plot(hist, title='Histogram', style=plot.style_columns, color=(hist>=0 ? (hist[1] < hist ? col_grow_above : col_fall_above) : (hist[1] < hist ? col_grow_below : col_fall_below) ), transp=0 )
+plot(macd, title='MACD', color=col_macd, transp=0)
+plot(signal, title='Signal', color=col_signal, transp=0)
+
+hist_c = change(hist, hist_c_len)
+macd_c = change(macd)
+signal_c = change(signal)
+
+d =
+  (macd_c>0 and hist_c>0 ? +1 : macd_c<0 and hist_c<0 ? -1 : 0) +
+  (signal<hist and signal_c>0 ? +1 : signal>hist and signal_c<0 ? -1 : 0) +
+  (macd<hist and macd>signal ? +1 : macd>hist and macd<signal ? -1 : 0)
+
+color c = if(not enable_bg)
+    na
+else if(d==-3)
+    color.new(color.red, 50)
+else if(d==-2)
+    color.new(color.red, 65)
+else if(d==-1)
+    color.new(color.red, 80)
+else if(d==+3)
+    color.new(color.green, 50)
+else if(d==+2)
+    color.new(color.green, 65)
+else if(d==+1)
+    color.new(color.green, 80)
+else 
+    na
+
+bgcolor(c)
+
+alertcondition(signal<0 and d==+1,
+  '1) Positive Momentum (+)', 'Oversold with positive momentum. ({{ticker}})')
+alertcondition(signal<0 and d==+2,
+  '2) Positive Momentum Signal (+) ▲', 'Oversold with positive momentum signal (crossover). ▲ ({{ticker}})')
+alertcondition(signal<0 and d==+3,
+  '3) Momentum Confirmed (+) ▲▲', 'Oversold with positive momentum confirmed. ▲▲ ({{ticker}})')
+alertcondition(d==0,
+  '4) Weakening Momentum', 'Momentum weakening. ({{ticker}})')
+alertcondition(signal>0 and d==-1,
+  '5) Negative Momentum (-)', 'Overbought with negative momentum. ({{ticker}})')
+alertcondition(signal>0 and d==-2,
+  '6) Negative Momentum Signal (-) ▼', 'Overbought with negative momentum signal (crossover). ▼ ({{ticker}})')
+alertcondition(signal>0 and d==-3,
+  '7) Momentum Confirmed (+) ▼▼', 'Overbought with negative momentum confirmed. ▼▼ ({{ticker}})')

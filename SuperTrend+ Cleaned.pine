@@ -1,0 +1,45 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified (electrifiedtrading)
+
+//@version=5
+indicator("SuperTrend+ Cleaned", overlay = true, format=format.price, precision=2) // v=4
+import Electrified/SupportResitanceAndTrend/2 as SRT
+
+ATR = "Average True Range", CONFIRM = "Confirmation", DISPLAY = "Display"
+atrPeriod = input.int(120, "Period", group=ATR, tooltip="The number of bars to use in calculating the ATR value.")
+atrM = input.float(3.0, "Multiplier", step=0.5, group=ATR, tooltip="The multiplier used when defining the super trend limits.")
+maxDev = input.float(2, "Maximum Deviation", minval=0, group=ATR, tooltip="The maximum true range (volatility) before considered an outlier.")
+devM = input.float(1, "StdDev Multilplier", minval=0, group=ATR, tooltip="The amount of standard deviation added to the true range.")
+
+closeBars = input.int(2, "Closed Bars", minval = 0, group=CONFIRM, tooltip="The number of closed bars that have to exceed the super-trend value before the trend reversal is confirmed.")
+
+showsignals = input(false, title="Show Buy/Sell Signals ?", group=DISPLAY)
+highlighting = input(true, "Highlighter On/Off ?", group=DISPLAY)
+
+superTrend(m, p, closeBars) =>
+    [t, u, d, un, w, r] = SRT.superTrendCleaned(m, p, closeBars, devM, maxDev)
+    [t, u, d, un]
+///
+
+[trend, up, dn, unconfirmed] = superTrend(atrM, atrPeriod, closeBars)
+
+upPlot = plot(trend==1 ? up : na, title="Up Trend", style=plot.style_linebr, linewidth=2, color=unconfirmed==0?color.green:color.yellow)
+buySignal = trend == 1 and trend[1] == -1
+plotshape(buySignal ? up : na, title="UpTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=color.green)
+plotshape(buySignal and showsignals ? up : na, title="Buy", text="Buy", location=location.absolute, style=shape.labelup, size=size.tiny, color=color.green, textcolor=color.white)
+dnPlot = plot(trend==1 ? na : dn, title="Down Trend", style=plot.style_linebr, linewidth=2, color=unconfirmed==0?color.red:color.yellow)
+sellSignal = trend == -1 and trend[1] == 1
+plotshape(sellSignal ? dn : na, title="DownTrend Begins", location=location.absolute, style=shape.circle, size=size.tiny, color=color.red)
+plotshape(sellSignal and showsignals ? dn : na, title="Sell", text="Sell", location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.red, textcolor=color.white)
+mPlot = plot(ohlc4, title="", style=plot.style_circles, linewidth=0)
+longFillColor = highlighting ? (trend == 1 ? color.green : color.white) : color.white
+shortFillColor = highlighting ? (trend == -1 ? color.red : color.white) : color.white
+fill(mPlot, upPlot, title="UpTrend Highligter", color=color.new(longFillColor, 80))
+fill(mPlot, dnPlot, title="DownTrend Highligter", color=color.new(shortFillColor, 80))
+changeCond = trend != trend[1]
+warnCond = unconfirmed[1]==0 and unconfirmed > 0
+
+alertcondition(warnCond or changeCond, title="1) SuperTrend Warning", message="SuperTrend Warning ({{ticker}})")
+alertcondition(changeCond, title="2) SuperTrend Reversal", message="SuperTrend Reversal ({{ticker}})")
+alertcondition(buySignal, title="3) SuperTrend Up ▲ (+)", message="SuperTrend Up ▲ (+) ({{ticker}})")
+alertcondition(sellSignal, title="4) SuperTrend Down ▼ (-)", message="SuperTrend Down ▼ (-) ({{ticker}})")

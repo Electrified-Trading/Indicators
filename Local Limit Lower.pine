@@ -1,0 +1,39 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © electrifiedtrading
+
+//@version=4
+study(shorttitle='LLL', title='Local Limit Lower', overlay=true)
+
+src = input(low, title='Source', type=input.source)
+margin = input(0.02, title='Margin')
+sensitivity = input(true, title='Single Bar Sensitivity')
+
+var last = src
+var lastTrend = 0
+
+calcTrendValue(current, previous, previous2, last, lastTrend, margin) =>
+    trend = lastTrend
+    value = last
+
+    candle1 = current - previous
+    candle2 = na(previous2) ? 0 : previous - previous2
+    
+    if (candle1 < 0 and candle2 <= 0)
+    	trend := -1
+    else if (candle1 > 0 and candle2 >= 0)
+    	trend := +1
+
+    if(current<last)
+        value := current
+        
+    v = previous - margin
+    if(lastTrend<0 and trend>0 and v>last)
+        value := v
+
+    [value, trend] 
+
+[v, t] = calcTrendValue(src[0], src[1], src[2], last, lastTrend, margin)
+last := v
+lastTrend := t
+
+plot(last, 'Lower Limit', color=color.orange, transp=80)
