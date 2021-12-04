@@ -1,115 +1,100 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © Electrified
 
-//@version=5
+// @version=5
+// @description Displays the normal deviation levels from the open during the session.
 indicator('Daily Deviation', overlay=true)
 import Electrified/SessionInfo/10 as Session
 import Electrified/DailyLevels/9 as Daily
-import Electrified/DataCleaner/2 as Data
+import Electrified/DailyDeviation/1 as Deviation
+import Electrified/Time/2
 
-hlcDeltaArrays(
-  simple int days,
-  simple string spec = session.regular,
-  simple string res = '1440') =>
-    Dopen  = Daily.openArray(days, spec, res)
-    Dhigh  = Daily.highArray(days, spec, res)
-    Dlow   = Daily.lowArray(days, spec, res)
-    Dclose = Daily.closeArray(days, spec, res)    
-    OH = array.new_float(days + 1)
-    OL = array.new_float(days + 1)
-    OC = array.new_float(days + 1)
+days = input.int(50, 'Days to Measure Deviation')
+maxDeviation = input.float(3, 'Maximum Deviation', group='Data Cleaning', minval=0,
+  tooltip='The maximum deviation before considered an outlier.\nA value of 0 will cause the results to not be filtered.')
+display = input.int(0, 'Days extra', group='Display', minval=0)
+exceededOnly = input.bool(true, 'Only levels exceeded (for today)', group='Display')
 
-    int d = 0
-    while d < days
-        d += 1
-        o = array.get(Dopen, d)
-        h = array.get(Dhigh, d)
-        l = array.get(Dlow, d)
-        c = array.get(Dclose, d)
-        array.set(OH, d, h - o)
-        array.set(OL, d, o - l)
-        array.set(OC, d, c - o)
+colorHi = color.yellow // warm
+colorLo = color.blue // cold
+colorHiClear = color.new(colorHi, 100)
+colorLoClear = color.new(colorLo, 100)
 
-    [Data.cleanArray(OH, 1), Data.cleanArray(OL, 1), Data.cleanArray(OC, 1)]
-    
+// Track the bar index.
 var bar = -1
 bar += 1
+
 firstBar = Session.firstBarOfDay()
 barsPerSession = Session.maxBars()
 barsRemaining = math.max(barsPerSession - Session.bar(), 0)
+
 timeLeft = barsRemaining * timeframe.multiplier * 60 * 1000
 eod = time + timeLeft
 
-days = input.int(50, 'Days to Measure Deviation')
-display = input.int(0, 'Days extra to display', minval=0)
-exceededOnly = input.bool(true, 'Only exceeded levels.')
+day = Time.date()
+today = Time.date(timenow)
 
-
-today = timestamp(year(timenow), month(timenow), dayofmonth(timenow))
 ok = not session.ispremarket and time >= today - 86400 * 1000 * display
-isToday = time >= today
+isToday = day == today
 tx = isToday and exceededOnly
 
-makeBox(float top, float bottom, color c, int transp)=>
+makeBox(float top, float bottom, color c, int transp) =>
     var bg = color.new(c, transp)
     var bgBlank = color.new(c, 100)
     b = box.new(bar - firstBar, top, bar + barsRemaining, bottom, bg, 0, line.style_solid, extend.none, xloc.bar_index, bg)
     box.delete(b[1])
-    if top<=bottom
+    if not isToday or top<=bottom
         box.delete(b)
     
     isToday ? bgBlank : bg
-
+////
 
 oD = ok ? Daily.O() : na
-[OH, OL, OC] = hlcDeltaArrays(days)
+[OH, OL, OC] = Deviation.hlcDeltaArrays(days, maxDeviation)
 
+// Plot High Levels
 hiToday = Daily.H()
 OHbase = oD +  array.avg(OH)
 Hstdev = array.stdev(OH)
-cHb = color.yellow
-cH = color.new(cHb, 100)
 OH1 = OHbase + Hstdev
-OH2 = OHbase + Hstdev * 2
-OH3 = OHbase + Hstdev * 3
-OH4 = OHbase + Hstdev * 4
-//h0 = plot(OHbase, 'H0')
-h1 = plot(tx and hiToday < OH1 ? na : OH1, 'H1', cH)
-h2 = plot(tx and hiToday < OH2 ? na : OH2, 'H2', cH)
-h3 = plot(tx and hiToday < OH3 ? na : OH3, 'H3', cH)
-h4 = plot(tx and hiToday < OH4 ? na : OH4, 'H4', cH)
+OH2 = OH1 + Hstdev
+OH3 = OH2 + Hstdev
+OH4 = OH3 + Hstdev
 
+h1 = plot(tx and hiToday < OH1 ? na : OH1, 'H1', colorHiClear)
+h2 = plot(tx and hiToday < OH2 ? na : OH2, 'H2', colorHiClear)
+h3 = plot(tx and hiToday < OH3 ? na : OH3, 'H3', colorHiClear)
+h4 = plot(tx and hiToday < OH4 ? na : OH4, 'H4', colorHiClear)
+
+// Plot Low Levels
 loToday = Daily.L()
 OLbase = oD - array.avg(OL)
 Lstdev = array.stdev(OL)
-cLb = color.blue
-cL = color.new(cLb, 100)
 OL1 = OLbase - Lstdev
-OL2 = OLbase - Lstdev * 2
-OL3 = OLbase - Lstdev * 3
-OL4 = OLbase - Lstdev * 4
-//l0 = plot(OLbase, 'L0')
-l1 = plot(tx and loToday > OL1 ? na : OL1, 'L1', cL)
-l2 = plot(tx and loToday > OL2 ? na : OL2, 'L2', cL)
-l3 = plot(tx and loToday > OL3 ? na : OL3, 'L3', cL)
-l4 = plot(tx and loToday > OL4 ? na : OL4, 'L4', cL)
+OL2 = OL1 - Lstdev
+OL3 = OL2 - Lstdev
+OL4 = OL3 - Lstdev
 
+l1 = plot(tx and loToday > OL1 ? na : OL1, 'L1', colorLoClear)
+l2 = plot(tx and loToday > OL2 ? na : OL2, 'L2', colorLoClear)
+l3 = plot(tx and loToday > OL3 ? na : OL3, 'L3', colorLoClear)
+l4 = plot(tx and loToday > OL4 ? na : OL4, 'L4', colorLoClear)
+
+// Plot Open to Close Range
 Cstdev = array.stdev(OC)
 cH1 = oD + Cstdev
 cL1 = oD - Cstdev
-// l3 = plot(OLbase - Lstdev * 3, 'L3', cC)
-// l4 = plot(OLbase - Lstdev * 4, 'L4', cC)
 
-fill(h1, plot(cH1, 'C1+', isToday and firstBar > 0 ? color.new(cHb, 50) : cH, style=plot.style_circles), makeBox(tx ? math.min(hiToday, OH1) : OH1, cH1, cHb, 95))
-fill(plot(cL1, 'C1-', isToday and firstBar > 0 ? color.new(cLb, 50) : cL, style=plot.style_circles), l1, makeBox(cL1, tx ? math.max(loToday, OL1) : OL1, cLb, 95))
+fill(h1, plot(cH1, 'C1+', isToday and firstBar > 0 ? color.new(colorHi, 50) : colorHiClear, style=plot.style_circles), makeBox(tx ? math.min(hiToday, OH1) : OH1, cH1, colorHi, 95))
+fill(plot(cL1, 'C1-', isToday and firstBar > 0 ? color.new(colorLo, 50) : colorLoClear, style=plot.style_circles), l1, makeBox(cL1, tx ? math.max(loToday, OL1) : OL1, colorLo, 95))
 
-fill(h2, h1, makeBox(tx ? math.min(hiToday, OH2) : OH2, OH1, cHb, 85))
-fill(l1, l2, makeBox(OL1, tx ? math.max(loToday, OL2) : OL2, cLb, 85))
+fill(h2, h1, makeBox(tx ? math.min(hiToday, OH2) : OH2, OH1, colorHi, 85))
+fill(l1, l2, makeBox(OL1, tx ? math.max(loToday, OL2) : OL2, colorLo, 85))
 
-fill(h3, h2, makeBox(tx ? math.min(hiToday, OH3) : OH3, OH2, cHb, 75))
-fill(l2, l3, makeBox(OL2, tx ? math.max(loToday, OL3) : OL3, cLb, 75))
+fill(h3, h2, makeBox(tx ? math.min(hiToday, OH3) : OH3, OH2, colorHi, 75))
+fill(l2, l3, makeBox(OL2, tx ? math.max(loToday, OL3) : OL3, colorLo, 75))
 
-fill(h4, h3, makeBox(tx ? math.min(hiToday, OH4) : OH4, OH3, cHb, 95))
-fill(l3, l4, makeBox(OL3, tx ? math.max(loToday, OL4) : OL4, cLb, 95))
+fill(h4, h3, makeBox(tx ? math.min(hiToday, OH4) : OH4, OH3, colorHi, 95))
+fill(l3, l4, makeBox(OL3, tx ? math.max(loToday, OL4) : OL4, colorLo, 95))
 
 
