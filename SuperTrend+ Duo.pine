@@ -1,7 +1,7 @@
 // @version=5
 indicator('SuperTrend+ Duo', overlay = true)
 import Electrified/SupportResitanceAndTrend/3 as SRT
-import Electrified/MomentumSignals/6 as MS
+import Electrified/MomentumSignals/7 as MS 
 
 ATR = 'Average True Range', ATR1 = 'Major', ATR2 = 'Minor', DISPLAY = 'Display'
 WMA = 'WMA', EMA = 'EMA', SMA = 'SMA', VWMA = 'VWMA', VAWMA = 'VAWMA'

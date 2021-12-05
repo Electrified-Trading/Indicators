@@ -3,7 +3,7 @@
 
 //@version=5
 indicator("SuperTrend+", overlay = true, format=format.price, precision=2) // v=4
-import Electrified/MovingAverages/2 as MA
+import Electrified/MovingAverages/10 as MA
 
 ATR = "Average True Range", CONFIRM = "Confirmation", DISPLAY = "Display"
 WMA = "WMA", EMA = "EMA", SMA = "SMA", VWMA = "VWMA", VAWMA = "VAWMA"
@@ -69,7 +69,7 @@ superTrendCore(m, h, l, atr) =>
 
 
 superTrend(m, p, mode) =>
-    superTrendCore(m, high, low, MA.getMA(mode, p, ta.tr))
+    superTrendCore(m, high, low, MA.get(mode, p, ta.tr))
 ///
 
 [trend, up, dn, unconfirmed] = superTrend(atrM, atrPeriod, mode)
