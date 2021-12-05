@@ -1,0 +1,77 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified
+
+// @version=5
+// @description Creates a 'Time-of-Day' Deviation cone starting from the first bar of the session based upon data from previous days.
+indicator("Time-of-Day Deviation", "TOD Dev", overlay=true)
+import Electrified/SessionInfo/10 as Session
+import Electrified/DailyLevels/9 as Daily
+import Electrified/DataCleaner/3 as Data
+import Electrified/Time/3
+
+maxBars = input.int(2000, "Bars to Measure Deviation", minval=2, maxval=5000)
+maxDeviation = input.float(3, 'Maximum Deviation', group='Data Cleaning', minval=0,
+  tooltip='The maximum deviation before considered an outlier.\nA value of 0 will cause the results to not be filtered.')
+
+colorHi = color.yellow // warm
+colorLo = color.blue // cold
+colorHiClear = color.new(colorHi, 100)
+colorLoClear = color.new(colorLo, 100)
+
+float hi1 = na
+float lo1 = na
+float hi2 = na
+float lo2 = na
+float hi3 = na
+float lo3 = na
+
+if timeframe.isintraday
+    
+    var bar = -1
+    bar += 1
+    
+    O = Daily.O()
+    OH = high - O
+    OL = O - low
+    max_bars_back(OH, 5000)
+    max_bars_back(OL, 5000)
+    max_bars_back(time, 5000)
+    
+    hiValues = array.new_float()
+    loValues = array.new_float()
+    tod = Time.timeOfDay()
+    
+    if bar > 0
+        first = math.min(bar, maxBars)
+        for i = 1 to first
+            todi = Time.timeOfDay(time[i])
+            if todi == tod
+                array.push(hiValues, OH[i])
+                array.push(loValues, OL[i])
+    
+    hiValClean = maxDeviation == 0 ? hiValues : Data.cleanArray(hiValues, maxDeviation)
+    loValClean = maxDeviation == 0 ? loValues : Data.cleanArray(loValues, maxDeviation)            
+    hiAvg = array.avg(hiValClean)
+    loAvg = array.avg(loValClean)
+    hiStd = array.stdev(hiValClean)
+    loStd = array.stdev(loValClean)
+    
+    hi1 := O + hiAvg + hiStd
+    lo1 := O - loAvg - loStd
+    hi2 := hi1 + hiStd
+    lo2 := lo1 - loStd
+    hi3 := hi2 + hiStd
+    lo3 := lo2 - loStd
+    
+hi1_p = plot(hi1, "H1", colorHiClear)
+lo1_p = plot(lo1, "L1", colorLoClear)
+hi2_p = plot(hi2, "H2", colorHiClear)
+lo2_p = plot(lo2, "L2", colorLoClear)
+hi3_p = plot(hi3, "H3", colorHiClear)
+lo3_p = plot(lo3, "L3", colorLoClear)
+
+fill(hi1_p, hi2_p, color.new(colorHi, 90))
+fill(hi2_p, hi3_p, color.new(colorHi, 75))
+
+fill(lo1_p, lo2_p, color.new(colorLo, 90))
+fill(lo2_p, lo3_p, color.new(colorLo, 75))
