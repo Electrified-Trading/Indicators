@@ -6,7 +6,7 @@
 indicator("Time-of-Day Deviation", "TOD Dev", overlay=true)
 import Electrified/SessionInfo/10 as Session
 import Electrified/DailyLevels/9 as Daily
-import Electrified/DataCleaner/3 as Data
+import Electrified/DataCleaner/5 as Data
 import Electrified/Time/3
 
 maxBars = input.int(2000, "Bars to Measure Deviation", minval=2, maxval=5000)
