@@ -3,7 +3,7 @@
 
 //@version=5
 indicator("SuperTrend+ Cleaned", overlay = true, format=format.price, precision=2) // v=4
-import Electrified/SupportResitanceAndTrend/2 as SRT
+import Electrified/SupportResitanceAndTrend/4 as SRT
 
 ATR = "Average True Range", CONFIRM = "Confirmation", DISPLAY = "Display"
 atrPeriod = input.int(120, "Period", group=ATR, tooltip="The number of bars to use in calculating the ATR value.")

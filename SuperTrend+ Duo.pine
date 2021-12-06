@@ -1,6 +1,6 @@
 // @version=5
 indicator('SuperTrend+ Duo', overlay = true)
-import Electrified/SupportResitanceAndTrend/3 as SRT
+import Electrified/SupportResitanceAndTrend/4 as SRT
 import Electrified/MomentumSignals/7 as MS 
 
 ATR = 'Average True Range', ATR1 = 'Major', ATR2 = 'Minor', DISPLAY = 'Display'
@@ -17,6 +17,8 @@ atrPeriod2  = input.int(60,        'Period', group=ATR2, tooltip='The number of 
 atrM2       = input.float(2.0,      'Multiplier', group=ATR2, step=0.5, tooltip='The multiplier used when defining the super trend limits.')
 closeBars2  = input.int(2,          'Close Bars', group=ATR2, minval = 0, tooltip='The number of closed bars that have to exceed the super-trend value before the trend reversal is confirmed.')
 
+maxDeviation = input.float(0, title="Max Deviation", minval=0, step=0.5, group="Volatility Filtering", tooltip="The maximum deviation of the true range before being considered and outlier.\nA value of zero (default) results in no filtering.")
+
 [stochRSI_signal, stochRSI_stage] = MS.stochRSI(
   input.int(6,  'K', group=MOMENTUM, inline=VALUES, minval=1),
   input.int(4,  'D', group=MOMENTUM, inline=VALUES, minval=1),
@@ -29,14 +31,14 @@ highlighting    = input(true, 'Highlighter On/Off ?', group=DISPLAY)
 
 
 // Plot Major
-[trend1, up1, dn1, unconfirmed1, warn1, reversal1] = SRT.superTrend(atrM1, atrPeriod1, mode1, closeBars1)
+[trend1, up1, dn1, unconfirmed1, warn1, reversal1] = SRT.superTrend(atrM1, atrPeriod1, mode1, closeBars1, maxDeviation)
 up1Plot = plot(trend1==+1 ? up1 : na, 'Major Up Trend', style=plot.style_linebr, linewidth=2, color=unconfirmed1==0?color.green:color.yellow)
 dn1Plot = plot(trend1==-1 ? dn1 : na, 'Major Down Trend', style=plot.style_linebr, linewidth=2, color=unconfirmed1==0?color.red:color.yellow)
 plotshape(trend1 == +1 and trend1[1] == -1 ? up1 : na, 'UpTrend Begins', location=location.absolute, style=shape.circle, size=size.tiny, color=color.green)
 plotshape(trend1 == -1 and trend1[1] == +1 ? dn1 : na, 'DownTrend Begins', location=location.absolute, style=shape.circle, size=size.tiny, color=color.red)
 
 // Plot Minor
-[trend2, up2, dn2, unconfirmed2, warn2, reversal2] = SRT.superTrend(atrM2, atrPeriod2, mode2, closeBars2)
+[trend2, up2, dn2, unconfirmed2, warn2, reversal2] = SRT.superTrend(atrM2, atrPeriod2, mode2, closeBars2, maxDeviation)
 plot(trend2==+1 ? up2 : na, 'Minor Up Trend', style=plot.style_linebr, linewidth=1, color=unconfirmed2==0?color.green:color.yellow)
 plot(trend2==-1 ? dn2 : na, 'Minor Down Trend', style=plot.style_linebr, linewidth=1, color=unconfirmed2==0?color.red:color.yellow)
 
