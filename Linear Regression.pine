@@ -1,0 +1,138 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified (electrifiedtrading) & shr395
+
+// @version=5
+// @description Produces deviation lines based upon a linear regression with the option to clean the data of outliers.
+indicator("Linear Regression", shorttitle="LR", overlay=true)
+import Electrified/DataCleaner/6 as Data
+
+var sess_minutes = syminfo.session == session.regular ? 390 : 1440
+minutesPerBar = timeframe.isminutes ? timeframe.multiplier : timeframe.isseconds ? timeframe.multiplier / 60 : na
+
+BARS = 'Bars', MINUTES = 'Mins', DAYS = 'Days', LENGTH = "Length"
+minutesToLen(simple int len, simple string type) =>
+    switch type
+        BARS => len
+        MINUTES => len / minutesPerBar
+        DAYS => timeframe.isintraday ?
+          (sess_minutes * len / minutesPerBar) :
+          timeframe.isdaily ? len :
+          timeframe.isweekly ? len / 7 : 
+          timeframe.ismonthly ? len / 30 :
+          na
+        => na
+
+src = input.source(hlc3, "Source")
+len = minutesToLen(
+  input.int(251, LENGTH, inline=LENGTH, minval=1),
+  input.string(BARS, "", inline=LENGTH, options=[BARS, MINUTES, DAYS]))
+multiple = input.float(1.0, "Multiplier", minval=0, step=0.1, tooltip="Value to apply as a multipler to the standard deviation.")
+
+NEITHER = "Neither", RIGHT = "Right", LEFT = "Left", BOTH = "Both"
+extendLines = input.string(NEITHER, "Extend Lines", options=[NEITHER, RIGHT, LEFT, BOTH])
+extend = switch extendLines
+    NEITHER => extend.none
+    RIGHT => extend.right
+    LEFT => extend.left
+    BOTH => extend.both
+
+level2 = input.bool(false, "Draw Level 2", tooltip="When true, shows another set of lines an additional standard deviation out from the level one lines.")
+maxDeviation = input.float(4, "Max Deviation", group="Data Cleaning", minval=0, step=0.5, tooltip="The maximum deviation before a value is considered an outlier and removed from the dataset.")
+
+
+//////////////////////////////////////////////////
+calcForData(float[] data) =>
+
+    sumX = 0.0
+    sumY = 0.0
+	sumXSqr = 0.0
+	sumXY = 0.0
+	sumMsqr = 0.0
+	size = array.size(data)
+	
+	for i = 1 to size
+		val = array.get(data, i - 1)
+		sumX += i
+		sumY += val
+		sumXSqr += i * i
+		sumXY += val * i
+	
+	slope = (size * sumXY - sumX * sumY) / (size * sumXSqr - sumX * sumX)
+	average = sumY / size
+	intercept = average - slope * sumX / size + slope
+	
+    // Get true deviation values.
+    devArray = array.new_float(size)
+    last = size - 1
+	for n = 0 to last
+		array.set(devArray, n, array.get(data, n) - intercept + slope * n)
+	
+	[slope, average, intercept, intercept + slope * last, devArray]
+//////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////
+calc() =>
+
+    var data = array.new_float()
+    array.push(data, src)
+    size = array.size(data)
+    
+    if size > len
+        array.shift(data)
+        
+        [slope, average, intercept, endValue, devArray] = calcForData(data)
+        
+    	stddev = if Data.naArrayOutliers(devArray, maxDeviation)
+    	    // SEDOND PASS
+    	    // Data needs to be cleaned.  Use new na values in devArray to clean the orignal data.
+    	    n = array.new_float()
+            for i = 0 to len - 1
+                if not na(array.get(devArray, i))
+                    array.push(n, array.get(data, i))
+            [s, a, i, e, d] = calcForData(n)   
+            slope := s
+            average := a
+            intercept := i
+            endValue := e
+            array.stdev(d)
+        else
+            // Data was unchanged by cleaning process.  No outilers present.
+            array.stdev(devArray)
+            
+    	[intercept, endValue, stddev * multiple]
+        
+    else
+		[float(na), float(na), float(na)]
+//////////////////////////////////////////////////
+
+
+[startPrice, endPrice, sd] = calc()
+
+
+drawLine(float priceOffset=0, style=line.style_solid, color=color.silver, transp=50) =>
+    var line L = na
+    var c = color.new(color, transp)
+    if na(startPrice)
+        L
+    else if na(L) 
+    	L := line.new(time[len-1], startPrice+priceOffset, time, endPrice+priceOffset, width=1, extend=extend, color=c, style=style, xloc=xloc.bar_time)
+    else if not na(startPrice)
+        line.set_xy1(L, time[len-1], startPrice+priceOffset)
+    	line.set_xy2(L, time, endPrice+priceOffset)
+    	L
+    	
+drawLines(float priceOffset=0, style=line.style_solid, color=color.silver, transp=50) =>
+    drawLine(+priceOffset, style, color, transp)
+    drawLine(-priceOffset, style, color, transp)
+
+drawLine(0)
+sdHalf = sd / 2
+
+drawLines(sdHalf, line.style_dashed, transp=85)
+drawLines(sd, line.style_dashed)
+
+if level2
+    drawLines(3 * sdHalf, line.style_dashed, color.orange, 85)
+    drawLines(2 * sd, line.style_dashed, color.orange)
+
