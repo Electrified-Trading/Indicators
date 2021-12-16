@@ -120,16 +120,23 @@ calc() =>
 
 [startPrice, endPrice, sd] = calc()
 
+first = if len > 500
+    d = endPrice - startPrice
+    s = d / len
+    startPrice += s * (len - 500)
+    500
+else
+    len - 1
 
 drawLine(float priceOffset=0, style=line.style_solid, color=color.silver, transp=50) =>
     var line L = na
     var c = color.new(color, transp)
     if na(startPrice)
         L
-    else if na(L) 
-    	L := line.new(time[len-1], startPrice+priceOffset, time, endPrice+priceOffset, width=1, extend=extend, color=c, style=style, xloc=xloc.bar_time)
+    else if na(L)
+    	L := line.new(time[first], startPrice+priceOffset, time, endPrice+priceOffset, width=1, extend=extend, color=c, style=style, xloc=xloc.bar_time)
     else if not na(startPrice)
-        line.set_xy1(L, time[len-1], startPrice+priceOffset)
+        line.set_xy1(L, time[first], startPrice+priceOffset)
     	line.set_xy2(L, time, endPrice+priceOffset)
     	L
     	
