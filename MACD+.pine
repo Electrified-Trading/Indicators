@@ -1,22 +1,28 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © Electrified (electrifiedtrading)
 
-//@version=4
-study(title='MACD+', resolution='')
+//@version=5
+indicator(title="MACD+")
+import Electrified/MovingAverages/10 as MA
+import Electrified/MomentumSignals/10 as MS
 
 // Constants
-WMA = 'WMA', EMA = 'EMA', SMA = 'SMA'
+SOURCE = "Source", FAST = "Fast", SLOW = "Slow"
+MACD = "MACD", SIGNAL = "Signal", HISTOGRAM = "Histogram"
+SIGNAL_COLORS = "Signal Colors", DEVIATION = "Deviation Confirmation"
+SMA = 'SMA', EMA = 'EMA', WMA = 'WMA', VWMA = 'VWMA', VAWMA = 'VAWMA'
 
 // Inputs
-src         = input(close, 'Source')
-fast_mode   = input(EMA, 'Fast Mode', options=[SMA, WMA, EMA])
-fast_len    = input(12,'Fast Length', minval=1)
-slow_mode   = input(EMA, 'Slow Mode', options=[SMA, WMA, EMA])
-slow_len    = input(26, 'Slow Length', minval=1)
-signal_mode = input(SMA, 'Signal Mode', options=[SMA, WMA, EMA])
-signal_len  = input(9, 'Signal Smoothing', minval = 1)
-hist_c_len  = input(2, 'Histogram Change Length', minval = 1)
-enable_bg   = input(true, 'Show Phase Colors')
+src         = input.source( hlc3, SOURCE, inline=SOURCE)
+fast_len    = input.int(    18, FAST, inline=FAST, minval=1)
+fast_mode   = input.string( WMA, "", inline=FAST, options=[SMA, EMA, WMA, VWMA, VAWMA])
+slow_len    = input.int(    34, SLOW, inline=SLOW, minval=1)
+slow_mode   = input.string( WMA, "", inline=SLOW, options=[SMA, EMA, WMA, VWMA, VAWMA])
+signal_len  = input.int(    10, SIGNAL, inline=SIGNAL, minval = 1)
+signal_mode = input.string( SMA, "", inline=SIGNAL, options=[SMA, EMA, WMA, VWMA, VAWMA])
+enable_bg   = input.bool(   true, "Show", group=SIGNAL_COLORS)
+stdLen      = input.int(    100, "Length", group=DEVIATION, minval=1, tooltip="Length of standard deviation measurement before confirming change")
+stdM        = input.float(  2.5, "Multiple", group=DEVIATION, minval=0, step=0.5, tooltip="The number of standard deviations before confirming change")
 
 
 // Plot colors
@@ -26,68 +32,57 @@ col_fall_above = #B2DFDB
 col_fall_below = #EF5350
 col_macd = #0094ff
 col_signal = #ff6a00
+col_macd_fill = color.new(#0094ff, 75)
+col_signal_fill = color.new(#ff6a00, 75)
 
-// Calculation
-getMA(series, mode, len) =>
-  mode==WMA ? wma(series, len) :
-  mode==EMA ? ema(series, len) :
-  sma(series, len)
-fast_ma = getMA(src, fast_mode, fast_len)
-slow_ma = getMA(src, slow_mode, slow_len)
-macd = fast_ma - slow_ma
-signal = getMA(macd, signal_mode, signal_len)
-hist = macd - signal
+
+fast_ma = MA.get(fast_mode, fast_len, src)
+slow_ma = MA.get(slow_mode, slow_len, src)
+m = fast_ma - slow_ma
+s = MA.get(signal_mode, signal_len, m)
+h = m - s
+
+h_c = ta.change(h)
+h_std = ta.stdev(h_c, stdLen)
+
 
 // Plotting
+mPlot = plot(m, MACD, col_macd)
+sPlot = plot(s, SIGNAL, col_signal)
+plot(h, HISTOGRAM, (h>=0 ? (h[1] < h ? col_grow_above : col_fall_above) : (h[1] < h ? col_grow_below : col_fall_below)), style=plot.style_columns)
+fill(mPlot, sPlot, h > 0 ? col_macd_fill : h < 0 ? col_signal_fill : color.gray, 'Signal Fill', true)
 
-// Plot the fill first so it is behind the histogram..
-macdPlot = plot(macd, color=na, display=display.none, title='Fill Line Top')
-signalPlot = plot(signal, color=na, display=display.none, title='Fill Line Bottom')
-fill(macdPlot, signalPlot, hist > 0 ? col_macd : hist < 0 ? col_signal : color.gray, 75, 'Fill', true)
+signal = MS.special(m, s, stdLen, stdM)
 
-plot(hist, title='Histogram', style=plot.style_columns, color=(hist>=0 ? (hist[1] < hist ? col_grow_above : col_fall_above) : (hist[1] < hist ? col_grow_below : col_fall_below) ), transp=0 )
-plot(macd, title='MACD', color=col_macd, transp=0)
-plot(signal, title='Signal', color=col_signal, transp=0)
+color signalColor = switch signal
+    +4 => color.new(color.green, 20)
+    +3 => color.new(color.green, 40)
+    +2 => color.new(color.green, 60)
+    +1 => color.new(color.green, 80)
+    -1 => color.new(color.red, 80)
+    -2 => color.new(color.red, 60)
+    -3 => color.new(color.red, 40)
+    -4 => color.new(color.red, 20)
+    => na
+    
+bgcolor(enable_bg ? signalColor : na)
 
-hist_c = change(hist, hist_c_len)
-macd_c = change(macd)
-signal_c = change(signal)
+condition = m>0 and m>h ? +1 : m<0 and m<h ? -1 : 0
 
-d =
-  (macd_c>0 and hist_c>0 ? +1 : macd_c<0 and hist_c<0 ? -1 : 0) +
-  (signal<hist and signal_c>0 ? +1 : signal>hist and signal_c<0 ? -1 : 0) +
-  (macd<hist and macd>signal ? +1 : macd>hist and macd<signal ? -1 : 0)
+alertcondition(condition>0 and signal>0,
+  "1) ➖ Momentum Slowing", "Oversold with negative momentum slowing. ({{ticker}} {{interval}})")
+alertcondition(condition>0 and signal>+1,
+  "2) ➖ Momentum Reversing ▲", "Oversold with negative momentum reversing. ▲ ({{ticker}} {{interval}})")
+alertcondition(condition>0 and ta.crossover(m, s),
+  "3) ➕ Crossover ▲", "Oversold with positive momentum signal (crossover). ▲ ({{ticker}} {{interval}})")   
+alertcondition(condition>0 and signal>+2,
+  "4) ➕ Momentum Confirmed ▲▲", "Oversold with positive momentum confirmed. ▲▲ ({{ticker}} {{interval}})")
 
-color c = if(not enable_bg)
-    na
-else if(d==-3)
-    color.new(color.red, 50)
-else if(d==-2)
-    color.new(color.red, 65)
-else if(d==-1)
-    color.new(color.red, 80)
-else if(d==+3)
-    color.new(color.green, 50)
-else if(d==+2)
-    color.new(color.green, 65)
-else if(d==+1)
-    color.new(color.green, 80)
-else 
-    na
-
-bgcolor(c)
-
-alertcondition(signal<0 and d==+1,
-  '1) Positive Momentum (+)', 'Oversold with positive momentum. ({{ticker}})')
-alertcondition(signal<0 and d==+2,
-  '2) Positive Momentum Signal (+) ▲', 'Oversold with positive momentum signal (crossover). ▲ ({{ticker}})')
-alertcondition(signal<0 and d==+3,
-  '3) Momentum Confirmed (+) ▲▲', 'Oversold with positive momentum confirmed. ▲▲ ({{ticker}})')
-alertcondition(d==0,
-  '4) Weakening Momentum', 'Momentum weakening. ({{ticker}})')
-alertcondition(signal>0 and d==-1,
-  '5) Negative Momentum (-)', 'Overbought with negative momentum. ({{ticker}})')
-alertcondition(signal>0 and d==-2,
-  '6) Negative Momentum Signal (-) ▼', 'Overbought with negative momentum signal (crossover). ▼ ({{ticker}})')
-alertcondition(signal>0 and d==-3,
-  '7) Momentum Confirmed (+) ▼▼', 'Overbought with negative momentum confirmed. ▼▼ ({{ticker}})')
+alertcondition(condition<0 and signal<0 and m>h,
+  "5) ➕ Momentum Slowing", "Overbought with positive momentum slowing. ({{ticker}} {{interval}})")
+alertcondition(condition<0 and signal<-1 and m>h,
+  "6) ➕ Momentum Reversing ▼", "Overbought with positive momentum reversing. ▼ ({{ticker}} {{interval}})")
+alertcondition(condition<0 and ta.crossunder(m, s),
+  "7) ➖ Crossunder ▼", "Overbought with positive momentum signal (crossunder). ▼ ({{ticker}} {{interval}})")
+alertcondition(condition<0 and signal<-2,
+  "8) ➖ Momentum Confirmed ▼▼", "Overbought with negative momentum confirmed. ▼▼ ({{ticker}} {{interval}})")
