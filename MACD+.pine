@@ -3,7 +3,7 @@
 
 //@version=5
 indicator(title="MACD+")
-import Electrified/MovingAverages/10 as MA
+import Electrified/Momentum/5
 import Electrified/MomentumSignals/10 as MS
 
 // Constants
@@ -35,13 +35,7 @@ col_signal = #ff6a00
 col_macd_fill = color.new(#0094ff, 75)
 col_signal_fill = color.new(#ff6a00, 75)
 
-
-fast_ma = MA.get(fast_mode, fast_len, src)
-slow_ma = MA.get(slow_mode, slow_len, src)
-m = fast_ma - slow_ma
-s = MA.get(signal_mode, signal_len, m)
-h = m - s
-
+[m, s, h] = Momentum.macd(fast_len, slow_len, signal_len, src, fast_mode, slow_mode, signal_mode)
 h_c = ta.change(h)
 h_std = ta.stdev(h_c, stdLen)
 

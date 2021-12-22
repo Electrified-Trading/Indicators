@@ -1,0 +1,136 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified (electrifiedtrading)
+
+//@version=5
+indicator(title="MACD+")
+import Electrified/MovingAverages/10 as MA
+import Electrified/MomentumSignals/9 as MS
+import Electrified/LocalLimit/6 as LL
+
+// Constants
+WMA = "WMA", EMA = "EMA", SMA = "SMA"
+SOURCE = "Source", FAST = "Fast", SLOW = "Slow", SIGNAL = "Signal", HISTOGRAM = "Histogram", MACD = "MACD", SIGNAL_COLORS = "Signal Colors"
+
+// Inputs
+src         = input.source( close, SOURCE, inline=SOURCE)
+fast_len    = input.int(    12, FAST, inline=FAST, minval=1)
+fast_mode   = input.string( EMA, "", inline=FAST, options=[SMA, WMA, EMA])
+slow_len    = input.int(    26, SLOW, inline=SLOW, minval=1)
+slow_mode   = input.string( EMA, "", inline=SLOW, options=[SMA, WMA, EMA])
+signal_len  = input.int(    9, SIGNAL, inline=SIGNAL, minval = 1)
+signal_mode = input.string( SMA, "", inline=SIGNAL, options=[SMA, WMA, EMA])
+enable_bg   = input.bool(   true, "Show", group=SIGNAL_COLORS)
+stdLen      = input.int(    200, "Length", group=HISTOGRAM+" Deviation", minval=1, tooltip="Length of standard deviation measurement of historgram change")
+stdM        = input.float(  3.5, "Multiple", group=HISTOGRAM+" Deviation", minval=0, step=0.5, tooltip="The number of standard deviations before momentum may have reversed")
+
+stdPoints   = input.int(    50, "Max High-Low Data Points", minval=2)
+
+// Plot colors
+col_grow_above = #26A69A
+col_grow_below = #FFCDD2
+col_fall_above = #B2DFDB
+col_fall_below = #EF5350
+col_macd = #0094ff
+col_signal = #ff6a00
+col_macd_fill = color.new(#0094ff, 75)
+col_signal_fill = color.new(#ff6a00, 75)
+
+
+fast_ma = MA.get(fast_mode, fast_len, src)
+slow_ma = MA.get(slow_mode, slow_len, src)
+m = fast_ma - slow_ma
+s = MA.get(signal_mode, signal_len, m)
+h = m - s
+h_c = ta.change(h)
+h_std = ta.stdev(h_c, stdLen)
+
+hUL1 = LL.upper(h, h_std), hUL1_t = LL.trend(hUL1)
+hLL1 = LL.lower(h, h_std), hLL1_t = LL.trend(hLL1)
+hUL2 = LL.upper(hUL1), hUL2_t = LL.trend(hUL2)
+hLL2 = LL.lower(hLL1), hLL2_t = LL.trend(hLL2)
+
+
+plot(hUL2, "Histogram Upper Limit", color.silver)
+plot(hLL2, "Histogram Lower Limit", color.silver)
+
+var highs = array.new_float()
+var lows = array.new_float()
+var hi = 0.0
+var int hiTime = na
+var lo = 0.0
+var int loTime = na
+if m > hi
+    hi := m
+    hiTime := time
+if m < lo
+    lo := m
+    loTime := time
+s_c = ta.change(s)
+
+if s<0 and s[1]>=0 and not na(hiTime)
+    array.push(highs, hi)
+    //label.new(hiTime, hi, "H", xloc.bar_time, yloc.price, col_signal, label.style_label_down, color.white)
+    hi := 0
+
+if s>0 and s[1]<=0 and not na(loTime)
+    array.push(lows, lo)
+    //label.new(loTime, lo, "L", xloc.bar_time, yloc.price, col_macd, label.style_label_up, color.white)
+    lo := 0
+    
+if array.size(highs) > stdPoints
+    array.shift(highs)
+if array.size(lows) > stdPoints
+    array.shift(lows)
+    
+
+if s>0 and hUL1>0 and hUL1_t<0 and ta.crossunder(m, s) or hUL2>0 and ta.change(hUL2_t)<0 and m<s and m>0
+    label.new(time, m, "D", xloc.bar_time, yloc.price, col_signal, label.style_label_down, color.white)
+
+if s<0 and hLL1<0 and hLL1_t>0 and ta.crossover(m, s) or hLL2<0 and ta.change(hLL2_t)>0 and m>s and m<0
+    label.new(time, m, "D", xloc.bar_time, yloc.price, col_macd, label.style_label_up, color.white)
+
+
+mPosAvg = array.avg(highs)
+mNegAvg = array.avg(lows)
+mPosStDev = array.stdev(highs)
+mNegStDev = array.stdev(lows)
+
+plot(mPosAvg + mPosStDev)
+plot(mNegAvg - mNegStDev)
+
+// Plotting
+mPlot = plot(m, MACD, col_macd)
+sPlot = plot(s, SIGNAL, col_signal)
+plot(h, HISTOGRAM, (h>=0 ? (h[1] < h ? col_grow_above : col_fall_above) : (h[1] < h ? col_grow_below : col_fall_below)), style=plot.style_columns)
+fill(mPlot, sPlot, h > 0 ? col_macd_fill : h < 0 ? col_signal_fill : color.gray, 'Signal Fill', true)
+
+
+signal = MS.special(m, s, stdLen, stdM)
+//plot(signal, "Signal", color.orange)
+color signalColor = switch signal
+    +4 => color.new(color.green, 20)
+    +3 => color.new(color.green, 40)
+    +2 => color.new(color.green, 60)
+    +1 => color.new(color.green, 80)
+    -1 => color.new(color.red, 80)
+    -2 => color.new(color.red, 60)
+    -3 => color.new(color.red, 40)
+    -4 => color.new(color.red, 20)
+    => na
+
+//bgcolor(signalColor)
+
+// alertcondition(signal<0 and d==+1,
+//   "1) Positive Momentum (+)", "Oversold with positive momentum. ({{ticker}} {{interval}})")
+// alertcondition(signal<0 and d==+2,
+//   "2) Positive Momentum Signal (+) ▲", "Oversold with positive momentum signal (crossover). ▲ ({{ticker}} {{interval}})")
+// alertcondition(signal<0 and d==+3,
+//   "3) Momentum Confirmed (+) ▲▲", "Oversold with positive momentum confirmed. ▲▲ ({{ticker}} {{interval}})")
+// alertcondition(d==0,
+//   "4) Weakening Momentum", "Momentum weakening. ({{ticker}})")
+// alertcondition(signal>0 and d==-1,
+//   "5) Negative Momentum (-)", "Overbought with negative momentum. ({{ticker}} {{interval}})")
+// alertcondition(signal>0 and d==-2,
+//   "6) Negative Momentum Signal (-) ▼", "Overbought with negative momentum signal (crossover). ▼ ({{ticker}} {{interval}})")
+// alertcondition(signal>0 and d==-3,
+//   "7) Momentum Confirmed (+) ▼▼", "Overbought with negative momentum confirmed. ▼▼ ({{ticker}} {{interval}})")

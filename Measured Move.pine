@@ -1,0 +1,137 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified
+
+//@version=5
+indicator("Measured Move", overlay=true)
+import Electrified/LocalLimit/6 as LL
+import Electrified/MovingAverages/10 as MA
+import Electrified/DataCleaner/5 as Data
+var bar = 0
+
+getATR(simple string mode, simple int period, simple float maxDeviation) =>
+    trCleaned = maxDeviation==0 ? ta.tr : Data.naOutliers(ta.tr, period, maxDeviation)
+    MA.get(mode, period, trCleaned)
+////
+
+padding = getATR("WMA",
+  input.int(300, "Length", group="Volatility", minval=10), 4) *
+  input.float(0.5, "Multiple", group="Volatility", minval=0, step=0.1)
+////
+
+getPrevLabel(label[] labels, int index = na) =>
+    size = array.size(labels)
+    i = na(index) ? size - 1 : index
+    label label = na
+    while na(label) and i>=0
+        label := array.get(labels, i)
+        i -= 1
+    [label, i]
+////
+
+findLabelsBetween(label[] labels, start, end) =>
+    result = array.new_label()
+    last = na(start) or na(end) ? -1 : array.size(labels) - 1
+    while last >= 0
+        lbl = array.get(labels, last)
+        x = label.get_x(lbl)
+        if x < start
+            last := 0
+        else if x < end
+            array.push(result, lbl)
+        last -= 1
+    
+    array.reverse(result)
+    result
+////
+
+compareLabelX(label label1, label label2) => na(label1) or na(label2) ? na : label.get_x(label1) - label.get_x(label2)
+compareLabelY(label label1, label label2) => na(label1) or na(label2) ? na : label.get_y(label1) - label.get_y(label2)  
+
+loL1 = LL.lower(low, padding)
+hiL1 = LL.upper(high, padding)
+loLT = LL.trend(loL1)
+loLT1 = loLT[1]
+hiLT = LL.trend(hiL1)
+hiLT1 = hiLT[1] 
+
+
+var lastLo = 0
+var lastHi = 0
+var labelsLo = array.new_label()
+var labelsHi = array.new_label()
+var label lastLoLabel = na
+var label lastHiLabel = na
+
+if loLT < loLT1
+    i = bar - lastLo
+    v = low[i]
+    line.new(lastLo, v, bar-1, loL1[1], color=color.blue, style=line.style_dashed)    
+    n = label.new(lastLo, v, color=color.blue, style=label.style_label_up)
+    // his = findLabelsBetween(labelsHi, na(lastLoLabel) ? na : label.get_x(lastLoLabel),  x)
+    // len = array.size(his)
+    // if len > 1
+    //     highest = array.get(his, 0)
+    //     for j = 1 to len-1
+    //         next = array.get(his, j)
+    //         if compareLabelY(next, highest) < 0
+    //             label.delete(next)
+    //         else
+    //             label.delete(highest)
+    //             highest := next
+    
+    array.push(labelsLo, n)
+    lastLoLabel := n
+    
+if hiLT > hiLT1 
+    i = bar - lastHi 
+    line.new(lastHi, high[i], bar-1, hiL1[1], xloc.bar_index, color=color.orange, style=line.style_dashed)
+    n = label.new(lastHi, high[i], xloc=xloc.bar_index, color=color.orange, style=label.style_label_down)
+    array.push(labelsHi, n)
+    lastHiLabel := n
+
+  
+        
+if loL1 < loL1[1] 
+    lastLo := bar
+if hiL1 > hiL1[1]
+    lastHi := bar
+
+plot(hiL1, "Limit High 1", color.orange, 1)
+plot(loL1, "Limit Low 1", color.blue, 1)
+
+
+// if barstate.islast
+    // scan for invalid
+// [labelHi, HLpi] = getPrevLabel(labelsHi)
+// [labelLo, LLpi] = getPrevLabel(labelsLo)
+
+// if compareLabelX(labelLo, labelHi) < 0
+//     [labelHiP, HLpi1] = getPrevLabel(labelsHi, HLpi)
+//     if compareLabelX(labelLo, labelHiP) < 0
+//         if compareLabelY(labelHiP, labelHi) < 0
+//             label.delete(labelHiP)
+//             array.set(labelsHi, HLpi, na)
+//         [L, I] = getPrevLabel(labelsHi, HLpi1)
+//         labelHi := L
+//         HLpi := I
+//     // else
+//     //     [L, I] = getPrevLabel(labelsLo, LLpi)
+//     //     labelLo := L
+//     //     LLpi := I
+        
+// else if compareLabelX(labelHi, labelLo) < 0
+//     [labelLoP, LLpi1] = getPrevLabel(labelsLo, LLpi)
+//     if compareLabelX(labelHi, labelLoP) < 0
+//         label.delete(labelLoP)
+//         array.set(labelsLo, LLpi, na)
+//         [L, I] = getPrevLabel(labelsLo, LLpi1)
+//         labelLo := L
+//         LLpi := I
+//     // else
+//     //     [L, I] = getPrevLabel(labelsHi, HLpi)
+//     //     labelHi := L
+//     //     HLpi := I
+
+
+
+bar += 1
