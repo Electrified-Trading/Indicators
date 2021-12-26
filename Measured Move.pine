@@ -6,16 +6,21 @@ indicator("Measured Move", overlay=true)
 import Electrified/LocalLimit/6 as LL
 import Electrified/MovingAverages/10 as MA
 import Electrified/DataCleaner/5 as Data
+import Electrified/Points/6 as P
+
+upLineColor = color.new(color.green, 75)
+dnLineColor = color.new(color.red, 75)
+
 var bar = -1
 bar += 1
+
+var samples = input.int(20, "Minimum Samples", minval=2) + 2
+var samples2x = samples * 2
 
 getATR(simple string mode, simple int period, simple float maxDeviation) =>
     trCleaned = maxDeviation==0 ? ta.tr : Data.naOutliers(ta.tr, period, maxDeviation)
     MA.get(mode, period, trCleaned)
 ////
-
-var samples = input.int(100, "Minimum Samples", minval=2) + 2
-var samples2x = samples * 2
 
 padding = getATR("WMA",
   input.int(300, "Length", group="Volatility", minval=10), 4) *
@@ -23,160 +28,212 @@ padding = getATR("WMA",
 ////
 
 getLabelX(label label) => na(label) ? na : label.get_x(label)
-getLabelY(label label) => na(label) ? na : label.get_y(label)   
-getLabelXY(label label) => [getLabelX(label), getLabelY(label)]    
+getLabelY(label label) => na(label) ? na : label.get_y(label)
+getLabelXY(label label) => [getLabelX(label), getLabelY(label)]
 
-findLabelBetween(label[] labels, int start, int end) =>
-    int index = na
-    label lbl = na
-    last = na(start) or na(end) ? -1 : array.size(labels) - 1
-    while na(index) and last >= 0
-        lbl := array.get(labels, last)
-        x = label.get_x(lbl)
-        if x <= start
-            last := -1
-        else if x < end
-            index := last
-        last -= 1
-    [index, lbl]
+lowestOffsetBar(float src, int start, int last = 1) =>
+    if start<last
+        int(na)
+    else if start==last
+        start
+    else  
+        n = start, s = n + 1
+        lo = src[n]
+        for i = s to last
+            v = src[i]
+            if v<lo
+                n := i
+                lo := v
+        n
 ////
 
-findLabelBefore(label[] labels, int end) =>
-    findLabelBetween(labels, 0, end)
+highestOffsetBar(float src, int start, int last = 1) =>
+    if start<last
+        int(na)
+    else if start==last
+        start
+    else  
+        n = start, s = n + 1
+        hi = src[n]
+        for i = s to last
+            v = src[i]
+            if v>hi
+                n := i
+                hi := v
+        n
 ////
-
-find2LabelsBetween(label[] labels, int start, int end) =>
-    [latest, label1] = findLabelBetween(labels, start, end)
-    x = getLabelX(label1)
-    [prev, label2] = findLabelBetween(labels, start, x)
-    [prev, latest]
-////
-
-deleteLower(label[] labels, int a, int b) =>
-    if na(a) or na(b)
-        false
-    else
-        aLabel = array.get(labels,a)
-        bLabel = array.get(labels,b)
-        aY = label.get_y(aLabel)
-        bY = label.get_y(bLabel)
-        if aY < bY
-            array.remove(labels, a)
-            label.delete(aLabel)
-        else
-            array.remove(labels, b)
-            label.delete(bLabel)
-        true
-////
-
-deleteHigher(label[] labels, int a, int b) =>
-    if na(a) or na(b)
-        false
-    else
-        aLabel = array.get(labels,a)
-        bLabel = array.get(labels,b)
-        aY = label.get_y(aLabel)
-        bY = label.get_y(bLabel)
-        if aY > bY
-            array.remove(labels, a)
-            label.delete(aLabel)
-        else
-            array.remove(labels, b)
-            label.delete(bLabel)
-        true
-////
-
-deleteLowerBetween(label[] labels, int start, int end) =>
-    [a, b] = find2LabelsBetween(labels, start, end)
-    deleteLower(labels, a, b)
-////
-
-deleteHigherBetween(label[] labels, int start, int end) =>
-    [a, b] = find2LabelsBetween(labels, start, end)
-    deleteHigher(labels, a, b)
-////
-
-getXValues(label[] labels) =>
-    values = array.new_int()
-    for e in labels
-        array.push(values, label.get_x(e))
-    values
 
 var lastLo = 0
 var lastHi = 0
 var labelsLo = array.new_label()
 var labelsHi = array.new_label()
+var loXValues = array.new_int()
+var hiXValues = array.new_int()
+var loYValues = array.new_float()
+var hiYValues = array.new_float()
 var label lastLoLabel = na
 var label lastHiLabel = na
-var label activeLoLabel = label.new(0, low, color=color.gray, style=label.style_label_up)
-var label activeHiLabel = label.new(0, high, color=color.gray, style=label.style_label_down)
-loL1 = LL.lower(low, padding)
-hiL1 = LL.upper(high, padding)
-loLT = LL.trend(loL1)
-loLT1 = loLT[1]
-hiLT = LL.trend(hiL1)
-hiLT1 = hiLT[1] 
+var label activeLoLabel = label.new(0, low, yloc=yloc.belowbar, color=color.gray, textcolor=color.white, style=label.style_triangleup, size=size.tiny)
+var label activeHiLabel = label.new(0, high, yloc=yloc.abovebar, color=color.gray, textcolor=color.white, style=label.style_triangledown, size=size.tiny)
+loL = LL.lower(low, padding)
+hiL = LL.upper(high, padding)
+loLT = LL.trend(loL), loLT1 = loLT[1]
+hiLT = LL.trend(hiL), hiLT1 = hiLT[1]
+
+// plot(hiL, "Limit High", color.orange, 1)
+// plot(loL, "Limit Low", color.blue, 1)
+
+getXYTooltip(int x, float y) =>
+    str.tostring(x)+': '+str.tostring(y)
+////
+
+addLabel(label[] labels, int i, label n) =>
+    size = array.size(labels)
+    if i==size
+        array.push(labels, n)
+    else if i==0
+        array.unshift(labels, n)
+    else
+        array.insert(labels, i, n)
+    n
+
+addLoPoint(int x, float y) =>
+    [i, _x, _y] = P.add(loXValues, loYValues, x, y)
+    addLabel(labelsLo, i, label.new(x, y, yloc=yloc.belowbar, color=color.blue, style=label.style_triangleup, size=size.tiny, tooltip=getXYTooltip(x, y)))
+////
+
+addHiPoint(int x, float y) =>
+    [i, _x, _y] = P.add(hiXValues, hiYValues, x, y)
+    addLabel(labelsHi, i, label.new(x, y, yloc=yloc.abovebar, color=color.orange, style=label.style_triangledown, size=size.tiny, tooltip=getXYTooltip(x, y)))
+////
+
+deleteLoPoint(int index = na) =>
+    lbl = if na(index)
+        P.shift(loXValues, loYValues)
+        array.shift(labelsLo)
+    else
+        P.remove(loXValues, loYValues, index)
+        array.remove(labelsLo, index)
+    label.delete(lbl)
+////
+deleteHiPoint(int index = na) =>
+    lbl = if na(index)
+        P.shift(hiXValues, hiYValues)
+        array.shift(labelsHi)
+    else
+        P.remove(hiXValues, hiYValues, index)
+        array.remove(labelsHi, index)
+    label.delete(lbl)
+////
+
+deleteLowerBetweenHighs(int start, int end) =>
+    indexes = P.allIndexesBetween(hiXValues, start, end, ordered = true)
+    size = array.size(indexes)
+    if size == 0
+        [int(na), float(na)]
+    else
+        hiIndex = array.pop(indexes)
+        hiValue = array.get(hiYValues, hiIndex)
+        size -= 1
+        while size > 0
+            nIndex = array.pop(indexes)
+            nValue = array.get(hiYValues, nIndex)
+            size -= 1
+            if hiValue < nValue
+                deleteHiPoint(hiIndex)
+                hiValue := nValue
+                hiIndex := nIndex
+            else
+                deleteHiPoint(nIndex)
+                hiIndex -= 1
+        [hiIndex, hiValue]
+////
+
+
+deleteHigherBetweenLows(int start, int end) =>
+    indexes = P.allIndexesBetween(loXValues, start, end, ordered = true)
+    size = array.size(indexes)
+    if size == 0
+        [int(na), float(na)]
+    else
+        loIndex = array.pop(indexes)
+        loValue = array.get(loYValues, loIndex)
+        size -= 1
+        while size > 0
+            nIndex = array.pop(indexes)
+            nValue = array.get(loYValues, nIndex)
+            size -= 1
+            if loValue > nValue
+                deleteLoPoint(loIndex)
+                loValue := nValue
+                loIndex := nIndex
+            else
+                deleteLoPoint(nIndex)
+                loIndex -= 1
+        [loIndex, loValue]
+////
+
+lastLoOffset = bar - lastLo
+lastHiOffset = bar - lastHi
+// highest = highestOffsetBar(high, lastLoOffset)
+// lowest = lowestOffsetBar(low, lastHiOffset)
 
 // Add labels as data points are confirmed.
 if loLT < loLT1
-    i = bar - lastLo
-    n = label.new(lastLo, low[i], str.tostring(lastLo), color=color.blue, style=label.style_label_up)
-    array.push(labelsLo, n)
-    lastLoLabel := n
+    //addHiPoint(bar - highest, high[highest])
+    lastLoLabel := addLoPoint(lastLo, low[lastLoOffset])
 
     count = 0
-    last = array.size(labelsLo) - 1
+    last = array.size(loXValues) - 1
     while last > 0 and count < 2
-        p1 = getLabelX(array.get(labelsLo, last - 1))
-        p2 = getLabelX(array.get(labelsLo, last))
-        deleteLowerBetween(labelsHi, p1, p2)
+        p1 = array.get(loXValues, last - 1)
+        p2 = array.get(loXValues, last)
+        deleteLowerBetweenHighs(p1, p2)
         last -= 1
         count += 1
+
 ////
-if hiLT > hiLT1 
-    i = bar - lastHi 
-    n = label.new(lastHi, high[i], str.tostring(lastHi), color=color.orange, style=label.style_label_down)
-    array.push(labelsHi, n)
-    lastHiLabel := n
+if hiLT > hiLT1
+    //addLoPoint(bar - lowest, low[lowest])
+    lastHiLabel := addHiPoint(lastHi, high[lastHiOffset])
 
     count = 0
     last = array.size(labelsHi) - 1
     while last > 0 and count < 2
-        p1 = getLabelX(array.get(labelsHi, last - 1))
-        p2 = getLabelX(array.get(labelsHi, last))
-        deleteHigherBetween(labelsLo, p1, p2)
+        p1 = array.get(hiXValues, last - 1)
+        p2 = array.get(hiXValues, last)
+        deleteHigherBetweenLows(p1, p2)
         last -= 1
         count += 1
 ////
 
 // Update the new lows and highs.
-if loL1 < loL1[1] 
+if loL < loL[1]
     lastLo := bar
-    label.set_xy(activeLoLabel, bar, loL1)
+    label.set_xy(activeLoLabel, bar, loL)
+    label.set_tooltip(activeLoLabel, getXYTooltip(bar, loL))
 ////
-if hiL1 > hiL1[1]
+if hiL > hiL[1]
     lastHi := bar
-    label.set_xy(activeHiLabel, bar, hiL1)
+    label.set_xy(activeHiLabel, bar, hiL)
+    label.set_tooltip(activeHiLabel, getXYTooltip(bar, hiL))
 ////
 
 // Keep recent points up to date
-if loL1 != loL1[1]
-    deleteLowerBetween(labelsHi, getLabelX(lastLoLabel), lastLo)
+if loL != loL[1]
+    deleteLowerBetweenHighs(getLabelX(lastLoLabel), lastLo)
 ////
-if hiL1 != hiL1[1]
-    deleteHigherBetween(labelsLo, getLabelX(lastHiLabel), lastHi)
+if hiL != hiL[1]
+    deleteHigherBetweenLows(getLabelX(lastHiLabel), lastHi)
 ////
 
 // Don't retain labels that won't get used.
 if array.size(labelsLo) > samples2x
-    label.delete(array.shift(labelsLo))
+    deleteLoPoint()
 ////
 if array.size(labelsHi) > samples2x
-    label.delete(array.shift(labelsHi))
+    deleteHiPoint()
 ////
-
-// plot(hiL1, "Limit High", color.orange, 1)
-// plot(loL1, "Limit Low", color.blue, 1)
 
 if barstate.islast
 
@@ -185,33 +242,29 @@ if barstate.islast
         line.delete(e)
     array.clear(lines)
 
-    // upMoves = array.new_float()
-    // dnMoves = array.new_float()
-    
     // Determine the vectors.
     countL = 0, countH = 0
     [activeLoX, activeLoY] = getLabelXY(activeLoLabel)
     [activeHiX, activeHiY] = getLabelXY(activeHiLabel)
     max = math.min(activeLoX, activeHiX)
-    [maxLoIndex, maxLoLabel] = findLabelBefore(labelsLo, max)
-    [maxHiIndex, maxHiLabel] = findLabelBefore(labelsHi, max)
+    maxLoIndex = P.lastIndexBelow(loXValues, max)
+    maxHiIndex = P.lastIndexBelow(hiXValues, max)
 
-    while not na(maxLoIndex) and not na(maxHiIndex) and (countL<samples or countH<samples)
+    while maxLoIndex!=-1 and maxHiIndex!=-1 and (countL<samples or countH<samples)
 
-        [loX, loY] = getLabelXY(maxLoLabel)
-        [hiX, hiY] = getLabelXY(maxHiLabel)
+        [loX, loY] = P.get(loXValues, loYValues, maxLoIndex)
+        [hiX, hiY] = P.get(hiXValues, hiYValues, maxHiIndex)
         dy = hiY - loY
 
-        if loX<hiX 
+        if loX<hiX
             dx = hiX - loX
-            array.push(lines, line.new(activeLoX, activeLoY, activeLoX+dx, activeLoY+dy, xloc.bar_index, extend.none, color.green, line.style_dotted, 2))
-            [i, a] = findLabelBefore(labelsHi, hiX)
-            maxHiIndex := i, maxHiLabel := a
+            // array.push(lines, line.new(loX, loY, hiX, hiY, xloc.bar_index, extend.none, upLineColor, line.style_solid, 2))
+            array.push(lines, line.new(activeLoX, activeLoY, activeLoX+dx, activeLoY+dy, xloc.bar_index, extend.none, upLineColor, line.style_solid, 2))
+            maxHiIndex := P.lastIndexBelow(hiXValues, hiX, maxHiIndex)
             countL += 1
         else
             dx = loX - hiX
-            array.push(lines, line.new(activeHiX, activeHiY, activeHiX+dx, activeHiY-dy, xloc.bar_index, extend.none, color.red, line.style_dotted, 2))
-            [i, a] = findLabelBefore(labelsLo, loX)
-            maxLoIndex := i, maxLoLabel := a
+            // array.push(lines, line.new(hiX, hiY, loX, loY, xloc.bar_index, extend.none, dnLineColor, line.style_solid, 2))
+            array.push(lines, line.new(activeHiX, activeHiY, activeHiX+dx, activeHiY-dy, xloc.bar_index, extend.none, dnLineColor, line.style_solid, 2))
+            maxLoIndex := P.lastIndexBelow(loXValues, loX, maxLoIndex)
             countH += 1
-                        
