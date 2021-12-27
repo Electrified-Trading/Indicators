@@ -7,7 +7,9 @@ import Electrified/LocalLimit/6 as LL
 import Electrified/MovingAverages/10 as MA
 import Electrified/DataCleaner/5 as Data
 import Electrified/Points/6 as P
+import Electrified/Time/3
 
+barMs = Time.bar()
 upLineColor = color.new(color.green, 75)
 dnLineColor = color.new(color.red, 75)
 
@@ -31,36 +33,48 @@ getLabelX(label label) => na(label) ? na : label.get_x(label)
 getLabelY(label label) => na(label) ? na : label.get_y(label)
 getLabelXY(label label) => [getLabelX(label), getLabelY(label)]
 
-lowestOffsetBar(float src, int start, int last = 1) =>
-    if start<last
-        int(na)
-    else if start==last
-        start
-    else  
-        n = start, s = n + 1
-        lo = src[n]
-        for i = s to last
-            v = src[i]
-            if v<lo
-                n := i
-                lo := v
-        n
+lowestOffsetBar(int limit) =>
+    var lows = array.new_float()
+    if limit<1
+        [int(na), float(na)]
+    else
+        array.push(lows, low)
+        size = array.size(lows)
+        if size > limit
+            array.shift(lows)
+            size -= 1
+
+        last = size - 1
+        n = 0, lo = low
+        if size > 1
+            for i = 0 to last - 1
+                v = array.get(lows, i)
+                if v<=lo
+                    n := last - i
+                    lo := v
+        [n, lo]
 ////
 
-highestOffsetBar(float src, int start, int last = 1) =>
-    if start<last
-        int(na)
-    else if start==last
-        start
-    else  
-        n = start, s = n + 1
-        hi = src[n]
-        for i = s to last
-            v = src[i]
-            if v>hi
-                n := i
-                hi := v
-        n
+highestOffsetBar(int limit) =>
+    var highs = array.new_float()
+    if limit<1
+        [int(na), float(na)]
+    else
+        array.push(highs, high)
+        size = array.size(highs)
+        if size > limit
+            array.shift(highs)
+            size -= 1
+
+        last = size - 1
+        n = 0, hi = high
+        if size > 1
+            for i = 0 to last - 1
+                v = array.get(highs, i)
+                if v>=hi
+                    n := last - i
+                    hi := v
+        [n, hi]
 ////
 
 var lastLo = 0
@@ -80,8 +94,9 @@ hiL = LL.upper(high, padding)
 loLT = LL.trend(loL), loLT1 = loLT[1]
 hiLT = LL.trend(hiL), hiLT1 = hiLT[1]
 
-// plot(hiL, "Limit High", color.orange, 1)
-// plot(loL, "Limit Low", color.blue, 1)
+enableLimitPlot = input.bool(true, "Enable upper lower limit plots")
+plot(enableLimitPlot ? hiL : na, "Limit High", color.orange, 1)
+plot(enableLimitPlot ? loL : na, "Limit Low", color.blue, 1)
 
 getXYTooltip(int x, float y) =>
     str.tostring(x)+': '+str.tostring(y)
@@ -175,12 +190,12 @@ deleteHigherBetweenLows(int start, int end) =>
 
 lastLoOffset = bar - lastLo
 lastHiOffset = bar - lastHi
-// highest = highestOffsetBar(high, lastLoOffset)
-// lowest = lowestOffsetBar(low, lastHiOffset)
+// [hbo, highest] = highestOffsetBar(lastLoOffset)
+// [lbo, lowest] = lowestOffsetBar(lastHiOffset)
 
 // Add labels as data points are confirmed.
 if loLT < loLT1
-    //addHiPoint(bar - highest, high[highest])
+    // addHiPoint(bar - hbo, highest)
     lastLoLabel := addLoPoint(lastLo, low[lastLoOffset])
 
     count = 0
@@ -194,7 +209,7 @@ if loLT < loLT1
 
 ////
 if hiLT > hiLT1
-    //addLoPoint(bar - lowest, low[lowest])
+    // addLoPoint(bar - lbo, lowest)
     lastHiLabel := addHiPoint(lastHi, high[lastHiOffset])
 
     count = 0
@@ -255,16 +270,17 @@ if barstate.islast
         [loX, loY] = P.get(loXValues, loYValues, maxLoIndex)
         [hiX, hiY] = P.get(hiXValues, hiYValues, maxHiIndex)
         dy = hiY - loY
+        dx = barMs * (loX < hiX ? hiX - loX : loX - hiX)
+        x = loX < hiX ? activeLoX : activeHiX
+        xt = time[bar - x]
 
         if loX<hiX
-            dx = hiX - loX
             // array.push(lines, line.new(loX, loY, hiX, hiY, xloc.bar_index, extend.none, upLineColor, line.style_solid, 2))
-            array.push(lines, line.new(activeLoX, activeLoY, activeLoX+dx, activeLoY+dy, xloc.bar_index, extend.none, upLineColor, line.style_solid, 2))
+            array.push(lines, line.new(xt, activeLoY, xt+dx, activeLoY+dy, xloc.bar_time, extend.none, upLineColor, line.style_solid, 2))
             maxHiIndex := P.lastIndexBelow(hiXValues, hiX, maxHiIndex)
             countL += 1
         else
-            dx = loX - hiX
             // array.push(lines, line.new(hiX, hiY, loX, loY, xloc.bar_index, extend.none, dnLineColor, line.style_solid, 2))
-            array.push(lines, line.new(activeHiX, activeHiY, activeHiX+dx, activeHiY-dy, xloc.bar_index, extend.none, dnLineColor, line.style_solid, 2))
+            array.push(lines, line.new(xt, activeHiY, xt+dx, activeHiY-dy, xloc.bar_time, extend.none, dnLineColor, line.style_solid, 2))
             maxLoIndex := P.lastIndexBelow(loXValues, loX, maxLoIndex)
             countH += 1
