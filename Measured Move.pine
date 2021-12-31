@@ -10,9 +10,8 @@ import Electrified/Points/6 as P
 import Electrified/Time/3
 
 barMs = Time.bar()
-upLineColor = color.new(color.green, 75)
-dnLineColor = color.new(color.red, 75)
-
+upColor = color.green
+dnColor = color.red
 
 var bar = -1
 bar += 1
@@ -101,7 +100,12 @@ hiL = LL.upper(high, padding)
 loLT = LL.trend(loL), loLT1 = loLT[1]
 hiLT = LL.trend(hiL), hiLT1 = hiLT[1]
 
-enableLimitPlot = input.bool(true, "Enable upper lower limit plots")
+LINES = "Lines", BOXES = "Boxes", BOTH = "Both"
+var mode = input.string(LINES, "Mode", group="Display", options=[LINES, BOXES, BOTH],
+  tooltip="Lines show each historic move as a line.\nBoxes help produce a heatmap of the recorded moves.")
+useBoxes = mode != LINES
+useLines = mode != BOXES
+enableLimitPlot = input.bool(true, "Upper lower limit plots", group="Display")
 plot(enableLimitPlot ? hiL : na, "Limit High", color.orange, 1)
 plot(enableLimitPlot ? loL : na, "Limit Low", color.blue, 1)
 
@@ -259,12 +263,42 @@ if array.size(labelsHi) > samples2x
     deleteHiPoint()
 ////
 
+var lines = array.new_line()
+var boxes = array.new_box()
+
+addLine(int x, float y, int dx, float dy, color c, int width = 2, string style = line.style_solid) =>
+    array.push(lines, line.new(x, y, x+dx, y+dy, xloc, extend.none, c, style, width))
+
+addBox(int x, float y, int dx, float dy, color c) =>
+    array.push(boxes, box.new(x, y, x+dx, y+dy, border_color=na, border_width=0, xloc=xloc, extend=extend.none, bgcolor=c))
+
+plotMoves(int[] spans, float[] deltas, int x, float y, color c) =>
+    size = P.size(spans, deltas)
+    cBox = color.new(c, 95)
+    cLine = color.new(c, 75)
+    if size == 0
+        size := na
+    for i = 0 to size - 1
+        [dx, dy] = P.get(spans, deltas, i)      
+        if isXlocBar and dx > 500
+            dy := dx * dy / 500
+            dx := 500
+        if useBoxes
+            addBox(x, y, dx, dy, cBox)
+        if useLines
+            addLine(x, y, dx, dy, cLine)
+
+
 if barstate.islast
 
-    var lines = array.new_line()
     for e in lines
         line.delete(e)
     array.clear(lines)
+    for e in boxes
+        box.delete(e)
+    array.clear(boxes)
+    [loSpans, loDeltas] = P.new()
+    [hiSpans, hiDeltas] = P.new()
 
     // Determine the vectors.
     countL = 0, countH = 0
@@ -278,21 +312,36 @@ if barstate.islast
 
         [loX, loY] = P.get(loXValues, loYValues, maxLoIndex)
         [hiX, hiY] = P.get(hiXValues, hiYValues, maxHiIndex)
-        dy = hiY - loY
         dx = loX < hiX ? hiX - loX : loX - hiX
-        x = loX < hiX ? activeLoX : activeHiX
-
-        if isXlocBar and dx > 500
-            dy := dx * dy / 500
-            dx := 500
+        dy = loX < hiX ? hiY - loY : loY - hiY
 
         if loX<hiX
-            // array.push(lines, line.new(loX, loY, hiX, hiY, xloc.bar_index, extend.none, upLineColor, line.style_solid, 2))
-            array.push(lines, line.new(x, activeLoY, x+dx, activeLoY+dy, xloc, extend.none, upLineColor, line.style_solid, 2))
+            P.push(loSpans, loDeltas, dx, dy)
             maxHiIndex := P.lastIndexBelow(hiXValues, hiX, maxHiIndex)
             countL += 1
         else
-            // array.push(lines, line.new(hiX, hiY, loX, loY, xloc.bar_index, extend.none, dnLineColor, line.style_solid, 2))
-            array.push(lines, line.new(x, activeHiY, x+dx, activeHiY-dy, xloc, extend.none, dnLineColor, line.style_solid, 2))
+            P.push(hiSpans, hiDeltas, dx, dy)
             maxLoIndex := P.lastIndexBelow(loXValues, loX, maxLoIndex)
             countH += 1
+
+    loSpanAvg = array.avg(loSpans)
+    loSpanStdev = array.stdev(loSpans)
+    loDeltaAvg = array.avg(loDeltas)
+    loDeltaStdev = array.stdev(loDeltas)
+    addLine(activeLoX, activeLoY, loSpanAvg, loDeltaAvg, upColor)
+    addLine(activeLoX, activeLoY, loSpanAvg+loSpanStdev, loDeltaAvg-loDeltaStdev, upColor, 1, line.style_dashed)  
+    addLine(activeLoX, activeLoY, loSpanAvg-loSpanStdev, loDeltaAvg+loDeltaStdev, upColor, 1, line.style_dashed)  
+
+    hiSpanAvg = array.avg(hiSpans)
+    hiSpanStdev = array.stdev(hiSpans)
+    hiDeltaAvg = array.avg(hiDeltas)
+    hiDeltaStdev = array.stdev(hiDeltas)
+    addLine(activeHiX, activeHiY, hiSpanAvg, hiDeltaAvg, dnColor)    
+    addLine(activeHiX, activeHiY, hiSpanAvg+hiSpanStdev, hiDeltaAvg+hiDeltaStdev, dnColor, 1, line.style_dashed)  
+    addLine(activeHiX, activeHiY, hiSpanAvg-hiSpanStdev, hiDeltaAvg-hiDeltaStdev, dnColor, 1, line.style_dashed)  
+
+    // plotMoves(loSpans, loDeltas, activeLoX, activeLoY, upColor)
+    // plotMoves(hiSpans, hiDeltas, activeHiX, activeHiY, dnColor)
+
+
+////
