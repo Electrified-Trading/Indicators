@@ -23,8 +23,8 @@ xlocValue = isXlocTime ? time : bar
 var samples = input.int(30, "Minimum Samples", minval=2) + 2
 var samples2x = samples * 2
 
-getATR(simple string mode, simple int period, simple float maxDeviation) =>
-    trCleaned = maxDeviation==0 ? ta.tr : Data.naOutliers(ta.tr, period, maxDeviation)
+getATR(simple string mode, simple int period, simple float maxDev) =>
+    trCleaned = maxDev==0 ? ta.tr : Data.naOutliers(ta.tr, period, maxDev)
     MA.get(mode, period, trCleaned)
 ////
 
@@ -100,12 +100,11 @@ hiL = LL.upper(high, padding)
 loLT = LL.trend(loL), loLT1 = loLT[1]
 hiLT = LL.trend(hiL), hiLT1 = hiLT[1]
 
-LINES = "Lines", BOXES = "Boxes", BOTH = "Both"
-var mode = input.string(LINES, "Mode", group="Display", options=[LINES, BOXES, BOTH],
-  tooltip="Lines show each historic move as a line.\nBoxes help produce a heatmap of the recorded moves.")
-useBoxes = mode != LINES
-useLines = mode != BOXES
-enableLimitPlot = input.bool(true, "Upper lower limit plots", group="Display")
+DISPLAY = "Display"
+var enableLimitPlot = input.bool(true, "Upper lower limit plots", group=DISPLAY)
+var plotDeviation = input.bool(true, "Deviation cones", group=DISPLAY)
+var useLines = input.bool(false, "Source Vectors (lines)", group=DISPLAY)
+var useBoxes = input.bool(false, "Source Heatmap (boxes)", group=DISPLAY)
 plot(enableLimitPlot ? hiL : na, "Limit High", color.orange, 1)
 plot(enableLimitPlot ? loL : na, "Limit Low", color.blue, 1)
 
@@ -272,7 +271,7 @@ addLine(int x, float y, int dx, float dy, color c, int width = 2, string style =
 addBox(int x, float y, int dx, float dy, color c) =>
     array.push(boxes, box.new(x, y, x+dx, y+dy, border_color=na, border_width=0, xloc=xloc, extend=extend.none, bgcolor=c))
 
-plotMoves(int[] spans, float[] deltas, int x, float y, color c) =>
+plotPercentMoves(int[] spans, float[] deltas, int x, float y, color c) =>
     size = P.size(spans, deltas)
     cBox = color.new(c, 95)
     cLine = color.new(c, 75)
@@ -282,11 +281,29 @@ plotMoves(int[] spans, float[] deltas, int x, float y, color c) =>
         [dx, dy] = P.get(spans, deltas, i)      
         if isXlocBar and dx > 500
             dy := dx * dy / 500
-            dx := 500
+            dx := 500 
         if useBoxes
-            addBox(x, y, dx, dy, cBox)
+            addBox(x, y, dx, y * dy, cBox)
         if useLines
-            addLine(x, y, dx, dy, cLine)
+            addLine(x, y, dx, y * dy, cLine)
+
+cleanPoints(int[] spans, float[] deltas, float maxDev) =>
+    spanMax = array.avg(spans) + maxDev * array.stdev(spans)
+    deltaAvg = array.avg(deltas)
+    if deltaAvg < 0
+        deltaAvg := -deltaAvg
+
+    deltaMax = deltaAvg + maxDev * array.stdev(deltas)
+    size = P.size(spans, deltas)
+    if size == 0
+        size := na
+    for i = size - 1 to 0
+        [dx, dy] = P.get(spans, deltas, i)
+        if dx > spanMax or math.abs(dy) > deltaMax
+            P.remove(spans, deltas, i)
+
+    [spans, deltas]
+
 
 
 if barstate.islast
@@ -313,7 +330,7 @@ if barstate.islast
         [loX, loY] = P.get(loXValues, loYValues, maxLoIndex)
         [hiX, hiY] = P.get(hiXValues, hiYValues, maxHiIndex)
         dx = loX < hiX ? hiX - loX : loX - hiX
-        dy = loX < hiX ? hiY - loY : loY - hiY
+        dy = loX < hiX ? (hiY - loY) / loY : (loY - hiY) / hiY // use %
 
         if loX<hiX
             P.push(loSpans, loDeltas, dx, dy)
@@ -324,24 +341,32 @@ if barstate.islast
             maxLoIndex := P.lastIndexBelow(loXValues, loX, maxLoIndex)
             countH += 1
 
-    loSpanAvg = array.avg(loSpans)
-    loSpanStdev = array.stdev(loSpans)
-    loDeltaAvg = array.avg(loDeltas)
-    loDeltaStdev = array.stdev(loDeltas)
-    addLine(activeLoX, activeLoY, loSpanAvg, loDeltaAvg, upColor)
-    addLine(activeLoX, activeLoY, loSpanAvg+loSpanStdev, loDeltaAvg-loDeltaStdev, upColor, 1, line.style_dashed)  
-    addLine(activeLoX, activeLoY, loSpanAvg-loSpanStdev, loDeltaAvg+loDeltaStdev, upColor, 1, line.style_dashed)  
+    cleanPoints(loSpans, loDeltas, 4)
+    cleanPoints(hiSpans, hiDeltas, 4)
 
-    hiSpanAvg = array.avg(hiSpans)
-    hiSpanStdev = array.stdev(hiSpans)
-    hiDeltaAvg = array.avg(hiDeltas)
-    hiDeltaStdev = array.stdev(hiDeltas)
-    addLine(activeHiX, activeHiY, hiSpanAvg, hiDeltaAvg, dnColor)    
-    addLine(activeHiX, activeHiY, hiSpanAvg+hiSpanStdev, hiDeltaAvg+hiDeltaStdev, dnColor, 1, line.style_dashed)  
-    addLine(activeHiX, activeHiY, hiSpanAvg-hiSpanStdev, hiDeltaAvg-hiDeltaStdev, dnColor, 1, line.style_dashed)  
+    if useLines or useBoxes
+        plotPercentMoves(loSpans, loDeltas, activeLoX, activeLoY, upColor)
+        plotPercentMoves(hiSpans, hiDeltas, activeHiX, activeHiY, dnColor)
 
-    // plotMoves(loSpans, loDeltas, activeLoX, activeLoY, upColor)
-    // plotMoves(hiSpans, hiDeltas, activeHiX, activeHiY, dnColor)
+    for dev = 3 to 1
+        cleanPoints(loSpans, loDeltas, dev)
+        cleanPoints(hiSpans, hiDeltas, dev)
 
+        lineWidth = 4-dev
+        loSpanAvg = array.avg(loSpans)
+        loSpanStdev = array.stdev(loSpans)
+        loDeltaAvg = array.avg(loDeltas)
+        loDeltaStdev = array.stdev(loDeltas)
+        addLine(activeLoX, activeLoY, loSpanAvg, activeLoY*loDeltaAvg, upColor, lineWidth)
+        addLine(activeLoX, activeLoY, loSpanAvg+loSpanStdev, activeLoY*(loDeltaAvg-loDeltaStdev), upColor, lineWidth, line.style_dashed)  
+        addLine(activeLoX, activeLoY, loSpanAvg-loSpanStdev, activeLoY*(loDeltaAvg+loDeltaStdev), upColor, lineWidth, line.style_dashed)  
 
-////
+        hiSpanAvg = array.avg(hiSpans)
+        hiSpanStdev = array.stdev(hiSpans)
+        hiDeltaAvg = array.avg(hiDeltas)
+        hiDeltaStdev = array.stdev(hiDeltas)
+        addLine(activeHiX, activeHiY, hiSpanAvg, activeHiY*hiDeltaAvg, dnColor, lineWidth)    
+        addLine(activeHiX, activeHiY, hiSpanAvg+hiSpanStdev, activeHiY*(hiDeltaAvg+hiDeltaStdev), dnColor, lineWidth, line.style_dashed)  
+        addLine(activeHiX, activeHiY, hiSpanAvg-hiSpanStdev, activeHiY*(hiDeltaAvg-hiDeltaStdev), dnColor, lineWidth, line.style_dashed)  
+           
+////////
