@@ -7,9 +7,7 @@ import Electrified/LocalLimit/6 as LL
 import Electrified/MovingAverages/10 as MA
 import Electrified/DataCleaner/5 as Data
 import Electrified/Points/6 as P
-import Electrified/Time/3
 
-barMs = Time.bar()
 upColor = color.green
 dnColor = color.red
 
@@ -22,6 +20,8 @@ xlocValue = isXlocTime ? time : bar
 
 var samples = input.int(30, "Minimum Samples", minval=2) + 2
 var samples2x = samples * 2
+var durationBias = input.float(1.0, "Short Duration Bias", minval=0, maxval=1, step=0.1, tooltip="The higher the number, the less 'weight' a longer duration move has.")
+var deviationCutoff = input.float(2.0, "Deviation Cutoff", minval=0.1, step=0.1, tooltip="The point where data points are ignored.")
 
 getATR(simple string mode, simple int period, simple float maxDev) =>
     trCleaned = maxDev==0 ? ta.tr : Data.naOutliers(ta.tr, period, maxDev)
@@ -100,13 +100,14 @@ hiL = LL.upper(high, padding)
 loLT = LL.trend(loL), loLT1 = loLT[1]
 hiLT = LL.trend(hiL), hiLT1 = hiLT[1]
 
-DISPLAY = "Display"
+DISPLAY = "Display", TOOLTIP="Note: there is a limit to how much can be displayed and so not all drawings (lines, boxes or dots) will be visible."
 var enableLimitPlot = input.bool(true, "Upper lower limit plots", group=DISPLAY)
 var plotDeviation = input.bool(true, "Deviation cones", group=DISPLAY)
-var useLines = input.bool(false, "Source Vectors (lines)", group=DISPLAY)
-var useBoxes = input.bool(false, "Source Heatmap (boxes)", group=DISPLAY)
-plot(enableLimitPlot ? hiL : na, "Limit High", color.orange, 1)
-plot(enableLimitPlot ? loL : na, "Limit Low", color.blue, 1)
+var useLines = input.bool(false, "Source Vectors (lines)", group=DISPLAY, tooltip=TOOLTIP)
+useBoxes = false//input.bool(false, "Source Heatmap (boxes)", group=DISPLAY, tooltip=TOOLTIP)
+var useDots = input.bool(false, "Source Plot (dots)", group=DISPLAY, tooltip=TOOLTIP)
+plot(enableLimitPlot ? hiL : na, "Limit High", color.orange, 1, style=plot.style_circles)
+plot(enableLimitPlot ? loL : na, "Limit Low", color.blue, 1, style=plot.style_circles)
 
 getXYTooltip(int x, float y) =>
     str.tostring(x)+': '+str.tostring(y)
@@ -200,9 +201,6 @@ deleteHigherBetweenLows(int start, int end) =>
 ////
 
 
-// [hbo, highest] = highestOffsetBar(lastLoOffset)
-// [lbo, lowest] = lowestOffsetBar(lastHiOffset)
-
 // Add labels as data points are confirmed.
 if loLT < loLT1
     // addHiPoint(bar - hbo, highest)
@@ -264,17 +262,33 @@ if array.size(labelsHi) > samples2x
 
 var lines = array.new_line()
 var boxes = array.new_box()
+var dots = array.new_label()
 
 addLine(int x, float y, int dx, float dy, color c, int width = 2, string style = line.style_solid) =>
     array.push(lines, line.new(x, y, x+dx, y+dy, xloc, extend.none, c, style, width))
 
-addBox(int x, float y, int dx, float dy, color c) =>
-    array.push(boxes, box.new(x, y, x+dx, y+dy, border_color=na, border_width=0, xloc=xloc, extend=extend.none, bgcolor=c))
+addBox(int x, float y, int dx, float dy, color c, string txt = na, text_color = color.white, text_valign=text.align_top) =>
+    array.push(boxes, box.new(x, y, x+dx, y+dy, border_color=na, border_width=0, xloc=xloc, extend=extend.none, bgcolor=c,
+      text=txt, text_size=size.small, text_color=text_color, text_halign=text.align_right, text_valign=text_valign))
+
+addDot(int x, float y, int dx, float dy, color c, string tooltip = na) =>
+    array.push(dots, label.new(x+dx, y+dy, xloc=xloc, color=c, style=label.style_circle, size=size.tiny, tooltip=tooltip))
+
+drawBoundary(int x, float y, int[] spans, float[] deltas, color c, string txt = na, text_color = color.white) =>
+    x1 = array.min(spans)
+    dx1 = array.max(spans) - x1
+    dMin = array.min(deltas)
+    dMax = array.max(deltas)
+
+    y1 = (dMin>0 ? dMin : dMax) * y
+    dy1 = (dMin>0 ? dMax : dMin) * y - y1
+    addBox(x+x1, y+y1, dx1, dy1, c, txt, text_color, text_valign = dMin>0 ? text.align_top : text.align_bottom)
 
 plotPercentMoves(int[] spans, float[] deltas, int x, float y, color c) =>
     size = P.size(spans, deltas)
     cBox = color.new(c, 95)
     cLine = color.new(c, 75)
+    cDot = color.new(c, 25)
     if size == 0
         size := na
     for i = 0 to size - 1
@@ -286,6 +300,8 @@ plotPercentMoves(int[] spans, float[] deltas, int x, float y, color c) =>
             addBox(x, y, dx, y * dy, cBox)
         if useLines
             addLine(x, y, dx, y * dy, cLine)
+        if useDots
+            addDot(x, y, dx, y * dy, cDot)
 
 cleanPoints(int[] spans, float[] deltas, float maxDev) =>
     spanMax = array.avg(spans) + maxDev * array.stdev(spans)
@@ -304,7 +320,20 @@ cleanPoints(int[] spans, float[] deltas, float maxDev) =>
 
     [spans, deltas]
 
-
+durationBiasedAverages(int[] spans, float[] deltas) =>
+    max = array.max(spans)
+    sumX = 0.0, sumY = 0.0
+    weight = 0.0
+    size = P.size(spans, deltas)
+    if size == 0
+        size := na
+    for i = 0 to size - 1
+        [dx, dy] = P.get(spans, deltas, i)
+        w = max - dx * durationBias
+        sumX += dx * w
+        sumY += dy * w
+        weight += w
+    [int(sumX/weight), sumY/weight]
 
 if barstate.islast
 
@@ -314,6 +343,9 @@ if barstate.islast
     for e in boxes
         box.delete(e)
     array.clear(boxes)
+    for e in dots
+        label.delete(e)
+    array.clear(dots)    
     [loSpans, loDeltas] = P.new()
     [hiSpans, hiDeltas] = P.new()
 
@@ -341,32 +373,42 @@ if barstate.islast
             maxLoIndex := P.lastIndexBelow(loXValues, loX, maxLoIndex)
             countH += 1
 
+    // Remove any well established outliers.
     cleanPoints(loSpans, loDeltas, 4)
     cleanPoints(hiSpans, hiDeltas, 4)
 
-    if useLines or useBoxes
+    // Ignore cutoff.
+    cleanPoints(loSpans, loDeltas, deviationCutoff)
+    cleanPoints(hiSpans, hiDeltas, deviationCutoff)
+
+    if useLines or useBoxes or useDots
         plotPercentMoves(loSpans, loDeltas, activeLoX, activeLoY, upColor)
         plotPercentMoves(hiSpans, hiDeltas, activeHiX, activeHiY, dnColor)
 
-    for dev = 3 to 1
-        cleanPoints(loSpans, loDeltas, dev)
-        cleanPoints(hiSpans, hiDeltas, dev)
+    [loSpanAvg, loDeltaAvg] = durationBiasedAverages(loSpans, loDeltas)
+    addLine(activeLoX, activeLoY, loSpanAvg, activeLoY*loDeltaAvg, upColor, 4)
 
-        lineWidth = 4-dev
-        loSpanAvg = array.avg(loSpans)
-        loSpanStdev = array.stdev(loSpans)
-        loDeltaAvg = array.avg(loDeltas)
-        loDeltaStdev = array.stdev(loDeltas)
-        addLine(activeLoX, activeLoY, loSpanAvg, activeLoY*loDeltaAvg, upColor, lineWidth)
-        addLine(activeLoX, activeLoY, loSpanAvg+loSpanStdev, activeLoY*(loDeltaAvg-loDeltaStdev), upColor, lineWidth, line.style_dashed)  
-        addLine(activeLoX, activeLoY, loSpanAvg-loSpanStdev, activeLoY*(loDeltaAvg+loDeltaStdev), upColor, lineWidth, line.style_dashed)  
+    [hiSpanAvg, hiDeltaAvg] = durationBiasedAverages(hiSpans, hiDeltas)
+    addLine(activeHiX, activeHiY, hiSpanAvg, activeHiY*hiDeltaAvg, dnColor, 4)    
 
-        hiSpanAvg = array.avg(hiSpans)
-        hiSpanStdev = array.stdev(hiSpans)
-        hiDeltaAvg = array.avg(hiDeltas)
-        hiDeltaStdev = array.stdev(hiDeltas)
-        addLine(activeHiX, activeHiY, hiSpanAvg, activeHiY*hiDeltaAvg, dnColor, lineWidth)    
-        addLine(activeHiX, activeHiY, hiSpanAvg+hiSpanStdev, activeHiY*(hiDeltaAvg+hiDeltaStdev), dnColor, lineWidth, line.style_dashed)  
-        addLine(activeHiX, activeHiY, hiSpanAvg-hiSpanStdev, activeHiY*(hiDeltaAvg-hiDeltaStdev), dnColor, lineWidth, line.style_dashed)  
+    for i = 4 to 1
+        dev = i / 2.0
+        [sL, dL] = cleanPoints(array.copy(loSpans), array.copy(loDeltas), dev)
+        drawBoundary(activeLoX, activeLoY, sL, dL, color.new(upColor, 90))
+        [sH, dH] = cleanPoints(array.copy(hiSpans), array.copy(hiDeltas), dev)
+        drawBoundary(activeHiX, activeHiY, sH, dH, color.new(dnColor, 90))
+        
+        // lineWidth = 4-dev
+
+        // loSpanStdev = array.stdev(loSpans)
+        // loDeltaStdev = array.stdev(loDeltas)
+        // addLine(activeLoX, activeLoY, loSpanAvg+loSpanStdev, activeLoY*(loDeltaAvg-loDeltaStdev), upColor, lineWidth, line.style_dashed)  
+        // addLine(activeLoX, activeLoY, loSpanAvg-loSpanStdev, activeLoY*(loDeltaAvg+loDeltaStdev), upColor, lineWidth, line.style_dashed)  
+
+
+        // hiSpanStdev = array.stdev(hiSpans)
+        // hiDeltaStdev = array.stdev(hiDeltas)
+        // addLine(activeHiX, activeHiY, hiSpanAvg+hiSpanStdev, activeHiY*(hiDeltaAvg+hiDeltaStdev), dnColor, lineWidth, line.style_dashed)  
+        // addLine(activeHiX, activeHiY, hiSpanAvg-hiSpanStdev, activeHiY*(hiDeltaAvg-hiDeltaStdev), dnColor, lineWidth, line.style_dashed)  
            
 ////////
