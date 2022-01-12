@@ -87,20 +87,20 @@ bgcolor(enable_bg ? signalColor : na)
 
 condition = m1>0 and m1>h1 ? +1 : m1<0 and m1<h1 ? -1 : 0
 
-alertcondition(condition>0 and signal1>0,
+alertcondition(condition<0 and signal1>0,
   "1) ➖ Momentum Slowing", "Oversold with negative momentum slowing. ({{ticker}} {{interval}})")
-alertcondition(condition>0 and signal1>+1,
+alertcondition(condition<0 and signal1>+1,
   "2) ➖ Momentum Reversing ▲", "Oversold with negative momentum reversing. ▲ ({{ticker}} {{interval}})")
-alertcondition(condition>0 and ta.crossover(m1, s1),
+alertcondition(condition<0 and ta.crossover(m1, s1),
   "3) ➕ Crossover ▲", "Oversold with positive momentum signal1 (crossover). ▲ ({{ticker}} {{interval}})")   
-alertcondition(condition>0 and signal1>+2,
+alertcondition(condition<0 and signal1>+2,
   "4) ➕ Momentum Confirmed ▲▲", "Oversold with positive momentum confirmed. ▲▲ ({{ticker}} {{interval}})")
 
-alertcondition(condition<0 and signal1<0 and m1>h1,
+alertcondition(condition>0 and signal1<0,
   "5) ➕ Momentum Slowing", "Overbought with positive momentum slowing. ({{ticker}} {{interval}})")
-alertcondition(condition<0 and signal1<-1 and m1>h1,
+alertcondition(condition>0 and signal1<-1,
   "6) ➕ Momentum Reversing ▼", "Overbought with positive momentum reversing. ▼ ({{ticker}} {{interval}})")
-alertcondition(condition<0 and ta.crossunder(m1, s1),
+alertcondition(condition>0 and ta.crossunder(m1, s1),
   "7) ➖ Crossunder ▼", "Overbought with positive momentum signal1 (crossunder). ▼ ({{ticker}} {{interval}})")
-alertcondition(condition<0 and signal1<-2,
+alertcondition(condition>0 and signal1<-2,
   "8) ➖ Momentum Confirmed ▼▼", "Overbought with negative momentum confirmed. ▼▼ ({{ticker}} {{interval}})")
