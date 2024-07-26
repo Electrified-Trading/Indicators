@@ -1,0 +1,69 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified
+
+//@version=5
+indicator("Level Min", overlay=true)
+
+var PADDING = "Padding", MINIMUM = "Padding Minimum"
+var SOURCE = "Source", SOURCE_A = "Source-A", SOURCE_B = "Source-B", VALUE = "Value", PERCENT = "Percent"
+
+srcA = input.source(low,
+  SOURCE_A,
+  tooltip = "The source level.")
+
+srcB = input.source(low,
+  SOURCE_B,
+  tooltip = "An optional extra level to floor with Source-A.")
+
+src = math.min(srcA, srcB)
+
+padding = input.source(close,
+  SOURCE,
+  group = MINIMUM,
+  tooltip = "A series that defines how much minimum padding to include.\n\n"+
+  "Note: leaving this as 'close' will set the padding to zero.")
+
+// If 'close' (default) was selected then set to zero.
+if padding == close
+    padding := 0.0
+
+var minPadSource = input.float(0.0,
+  "×", 0, step = 0.25,
+  tooltip = "The multiple of the padding source to include as ths minimum padding.\n\nNote: the padding source must be set to something other than 'close' otherwise the value will be zero.",
+  group = MINIMUM)
+
+var minPadValue = input.float(0.0,
+  "$", 0, step = 0.01,
+  tooltip = "The minimum price value to include as the minimum padding.",
+  group = MINIMUM)
+
+var minPadPercent = input.float(0.0,
+  "%", 0, step = 0.25,
+  tooltip = "The percent of the close to include as the minimum padding.",
+  group = MINIMUM) / 100
+
+var precision = input.int(2,
+  "0.x", 0, 4,
+  tooltip = "Number of decimal places",
+  group = "Precision")
+
+var plotLength = input.int(100, "Max Plot Length",
+  tooltip = "The maximum number of bars to plot the value of the stop level. Setting to zero will hide the plot.",
+  group = "Display")
+
+var precisionMultiple = math.pow(10, precision)
+
+floor(float v) =>
+    math.floor(v * precisionMultiple) / precisionMultiple
+
+minPadding = math.max(minPadSource * padding, minPadValue, minPadPercent * close)
+
+change = ta.change(src)
+lowMin = floor(low - minPadding)
+
+var value = floor(src)
+
+if change > 0 or value > lowMin
+    value := math.min(floor(src), lowMin)
+
+plot(value, "Combined Minimum", color.red, 2, plot.style_circles, show_last = plotLength)
