@@ -1,0 +1,49 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified
+
+//@version=5
+indicator("ATR+")
+import Electrified/Time/7
+import Electrified/MovingAverages/13 as MA
+import Electrified/DataCleaner/11 as Data
+
+var ATR = "Average True Range (ATR)", MINIMUM = "Minimum Value"
+var LENGTH = "Length", BARS = "Bars", MINUTES = "Minutes", DAYS = "Days"
+
+atr_get(int len, float outlierLevel, int smoothing) =>
+    trCleaned = Data.naOutliers(ta.tr, len, outlierLevel)
+    trCleaned1 = trCleaned[1] // Don't use active bar for calculation.
+    stdev = ta.stdev(trCleaned1, len)
+    ta.sma(MA.wma(len, trCleaned1) + stdev, smoothing)
+
+var len = Time.spanToIntLen(
+  input.int(200,LENGTH, 1, group = ATR,
+  tooltip = "The number of units to measure the average true range."),
+  input.string(BARS, "Units", options = [BARS, MINUTES, DAYS], group = ATR))
+
+var maxOutlier = input.float(3.5,
+  "Max Outlier",
+  tooltip = "The maximum outlier level to allow when calculating the average true range.",
+  group = ATR),
+
+var smooth = input.int(100,
+  "Smoothing",
+  tooltip = "The number of bars to average in order to smooth out the result.",
+  group = ATR)
+
+var minPadValue = input.float(0.0,
+  "Value", 0, step = 0.01,
+  tooltip = "The minimum value.",
+  group = MINIMUM)
+
+var minPadPercent = input.float(0.0,
+  "Close (%)", 0, step = 0.25,
+  tooltip = "The percent of the close to include as the minimum.",
+  group = MINIMUM) / 100
+
+atr = math.max(
+  atr_get(len, maxOutlier, smooth),
+  minPadPercent * close,
+  minPadValue) 
+
+plot(atr, linewidth=2, color = color.orange)

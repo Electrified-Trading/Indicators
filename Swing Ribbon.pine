@@ -1,0 +1,58 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified
+
+//@version=5
+//@description=The fast and slow moving average combine to help visualize the current trend and potential changes in trend.
+indicator("Swing Ribbon", overlay = true)
+
+// #include ../../- Imports/MovingAverages.pine
+// #include ../../- Imports/Time.pine
+
+// HLCC4 is typically very near the close. This is just a default.
+source = input.source(hlcc4, "Source")
+
+// fastMA default: WMA of 5 days.
+fastMA = MA.get(
+  input.string(WMA, FAST, options = [SMA, EMA, WMA, VWMA, VAWMA], inline = FAST, group = MOVING_AVERAGES),
+  Time.spanToIntLen(
+  input.float(5, "", inline = FAST, group = MOVING_AVERAGES),
+  input.string(DAYS, "", options = [BARS, MINUTES, DAYS], inline = FAST, group = MOVING_AVERAGES)),
+  source)
+
+// slowMA default: WMA of 7 days.
+// This can also be set to SMA of 5 days to create a useful divergence and visualization to demonstrate the difference in the two.
+slowMA = MA.get(
+  input.string(WMA, SLOW, options = [SMA, EMA, WMA, VWMA, VAWMA], inline = SLOW, group = MOVING_AVERAGES),
+  Time.spanToIntLen(
+  input.float(7, "", inline = SLOW, group = MOVING_AVERAGES),
+  input.string(DAYS, "", options = [BARS, MINUTES, DAYS], inline = SLOW, group = MOVING_AVERAGES)),
+  source)
+
+// As the tooltip says, this gives a volatility tolerance that when set to something greater than one, will need more than one bar before a change in direction is confirmed.
+tolerance = input.int(2, "Tolerance", 1, tooltip = "The number of bars to measure the direction of the moving averages.")
+
+// #include ../../- Imports/Functions/quantize.pine
+
+// Where is the close (live value) relative to the fastMA
+closeP = close - fastMA
+// What is the fastMA's direction?
+fastD = quantize(ta.change(fastMA, tolerance))
+// What is the slowMA's direction?
+slowD = quantize(ta.change(slowMA, tolerance))
+
+if input.bool(true, "Include price in warning condition",
+  tooltip = "When this is checked, the visual warning condition will displayed if the price is on the opposite side of the fast moving average even if the direction hasn't changed.")
+    if closeP < 0
+        fastD := math.min(fastD, -1)
+    if closeP > 0
+        fastD := math.max(fastD, +1)
+
+D = fastD + slowD
+
+// #include ./Theme.pine
+
+fillColor = directionColor(D)
+slowPlot = plot(slowMA, "Slow", clearColor, 2)
+fastPlot = plot(fastMA, "Fast", fillColor, 2)
+
+fill(fastPlot, slowPlot, fastMA, slowMA, color.new(fillColor, 20), color.new(fillColor, 90))

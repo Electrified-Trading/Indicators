@@ -1,0 +1,246 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified (electrifiedtrading)
+
+//@version=5
+indicator("Auto SuperTrend+", overlay = true, format=format.price)
+import Electrified/MovingAverages/10 as MA
+import Electrified/DataCleaner/7 as DC
+import Electrified/Time/7
+
+// Constants
+CONFIRM = "Confirmation (Tolerance)", VOLATILITY = "Volatility", DEVIATION = "Deviation Measurement", DISPLAY = "Display", THEME = "Theme"
+MINUTES = "Minutes", DAYS = "Days", BARS = "Bars"
+MOVING_AVERAGE = "Moving Average Confirmation"
+SMA = 'SMA', EMA = 'EMA', WMA = 'WMA', VWMA = 'VWMA', VAWMA = 'VAWMA'
+UP = +1, DOWN = -1
+clearColor = color.new(color.gray, 100)
+
+// Track bar index wihtout calling bar_index.
+var int bar = -1
+bar += 1
+
+// Parameters
+volLen = math.min(4000, Time.spanToIntLen(
+  input.float(1.0, "", minval = 0.1, group=VOLATILITY, inline = VOLATILITY),
+  input.string(DAYS, "", options=[BARS, MINUTES, DAYS], group=VOLATILITY, inline = VOLATILITY,
+  tooltip = "The amount of time/bars to measure the range of movement.")))
+devMul = input.float(1.5, "Level", minval = 0.1, step = 0.1, group = DEVIATION,
+  tooltip = "The maximum deviation before a trend has been broken/reversed.")
+devLen = Time.spanToIntLen(
+  input.float(1000, "", minval = 0.1, group=DEVIATION, inline = DEVIATION),
+  input.string(BARS, "", options=[BARS, MINUTES, DAYS], group=DEVIATION, inline = DEVIATION,
+  tooltip = "The amount of time/bars to measure the deviation of the range."))
+atrMul = input.float(0.5, "ATR Multiple", minval = 0, step = 0.5, group=CONFIRM,
+  tooltip="The tolerance to give confirmation based upon the weighted average true range.")
+confirmBars = input.int(2, "Closed Bars", minval = 0, group=CONFIRM,
+  tooltip="The number of closed Bars that have to exceed the super-trend value before the trend reversal is confirmed.")
+displayTolerance = input.bool(false, "Show?", "Will add a line representing where the tolerance level is.", group=CONFIRM) ? display.all : display.none
+// slowMA default: WMA of 7 days.
+// This can also be set to SMA of 5 days to create a useful divergence and visualization to demonstrate the difference in the two.
+confirmMA = MA.get(
+  input.string(SMA, "", options = [SMA, EMA, WMA, VWMA, VAWMA], inline = CONFIRM, group = MOVING_AVERAGE),
+  Time.spanToIntLen(
+  input.float(5, "", inline = CONFIRM, group = MOVING_AVERAGE),
+  input.string(DAYS, "", options = [BARS, MINUTES, DAYS], inline = CONFIRM, group = MOVING_AVERAGE)),
+  hlc3)
+confirmMA_c = ta.change(confirmMA, 2)
+
+highlighting = input(true, "Show Highlighter ?", group=DISPLAY,
+  tooltip = "Paints the background depending on whether the trend is up or down.")
+showLabels = input(false, title="Show Reversal Labels ?", group=DISPLAY,
+  tooltip = "Adds labels to identify the point of reversal.")
+showMidpoint = input(false, "Show Middle Point ?", group=DISPLAY,
+  tooltip = "Displays the average of the upper and lower boundary.")
+
+// Theme
+upColor = input.color(color.green, "▲", group = THEME, inline = THEME)
+dnColor = input.color(color.red, "▼", group = THEME, inline = THEME)
+warnColor = input.color(color.yellow, "⚠", group = THEME, inline = THEME)
+upPen = color.new(upColor, 25)
+dnPen = color.new(dnColor, 25)
+warnPen = color.new(warnColor, 25)
+
+// Clamp/adjust lenghts that are too large
+if(volLen>devLen)
+    devLen := volLen * 2
+if(devLen > 4000)
+    devLen := 4000
+
+// Determine the normalized true range (for Bars)
+atr = na(ta.wma(DC.naOutliers(ta.tr, devLen, 2.5), devLen), atr[1])
+// Because the outliers become NA we need to carry over the tolerance from the previous bar
+if na(atr)
+    atr := atr[1]
+tolerance = atr * atrMul
+
+calcDev(series float source) =>
+    ta.wma(source, devLen) + ta.wma(ta.stdev(source, math.min(devLen * 2, 4000)), devLen) * devMul
+
+// Determine the range for the delta length
+upDev = calcDev(math.max(high - low[volLen], 0))
+dnDev = calcDev(math.max(high[volLen] - low, 0))
+
+// Trend
+var trend = 0
+var upper = high
+var lower = low
+var brokenCount = 0
+var wasTouched = false
+var reversalPullback = false
+warn = false
+reversal = false
+
+upperWarning = close > upper
+lowerWarning = close < lower
+upperBroken = close[1] - tolerance > upper
+lowerBroken = close[1] + tolerance < lower
+
+if trend == UP
+    // Touching the lower boundary resets the warning condition
+    if upperWarning
+        brokenCount := 0
+        wasTouched := false
+    if lowerWarning
+        wasTouched := true
+        warn := true
+else
+    if lowerBroken
+        lower := low[1]
+    if upperBroken
+        brokenCount += 1
+
+if trend == DOWN
+    // Touching the upper boundary resets the warning condition
+    if lowerWarning
+        brokenCount := 0
+        wasTouched := false
+    if upperWarning
+        wasTouched := true
+        warn := true        
+else
+    if upperBroken
+        upper := high[1]
+    if lowerBroken
+        warn := true
+        brokenCount += 1
+
+if trend != UP
+    // If the low exceeds the threshold then confirmation is not required.
+    if brokenCount > confirmBars or low > upper + tolerance 
+        trend := UP
+        upper := high[1]
+        reversal := true
+
+else if trend != DOWN
+    // If the high exceeds the threshold then confirmation is not required.
+    if brokenCount > confirmBars or high < lower - tolerance
+        trend := DOWN
+        lower := low[1]
+        reversal := true
+
+if reversal
+    reversalPullback := false
+    wasTouched := false
+    brokenCount := 0
+
+// Range adjustment
+if low[1] + tolerance < upper - dnDev
+    upper := low[1] + dnDev
+if high[1] - tolerance > lower + upDev
+    lower := high[1] - upDev
+
+trendChange = ta.change(trend)
+signalUp = trend == UP and trendChange > 0
+signalDn = trend == DOWN and trendChange < 0
+isTrendUp = trend[1] == UP
+isTrendDn = trend[1] == DOWN
+
+// Plots
+plot(upper + tolerance, "Upper Tolerance",
+  isTrendDn ? dnPen : clearColor, 1, plot.style_circles, display = displayTolerance)
+upperPlot = plot(upper, "Upper Boundary",
+  isTrendDn ? wasTouched[1] ? warnPen : dnPen : clearColor, 2, plot.style_linebr)
+
+middle = (lower + upper) / 2
+plot(middle, "Mid-Point",
+  isTrendUp ? upPen : isTrendDn ? dnPen : clearColor, 1, plot.style_circles,
+  display = showMidpoint ? display.all : display.status_line)
+
+lowerPlot = plot(lower, "Lower Boundary",
+  isTrendUp ? wasTouched[1]?warnPen:upPen : clearColor, 2, plot.style_linebr)
+plot(lower - tolerance, "Lower Tolerance",
+  isTrendUp ? upPen : clearColor, 1, plot.style_circles, display = displayTolerance)
+
+pullback = isTrendUp and close>lower ? close<middle : isTrendDn and close<upper ? close>middle : false
+showPullback = pullback and not reversalPullback and trend[0]==trend[1]
+if showPullback
+    reversalPullback := true
+
+// Labels
+plotshape(showPullback and isTrendDn ? high : na, "▼ Pullback", shape.triangledown,
+  location.abovebar, warnColor, -1, "", size = size.tiny, display = display.pane)
+plotshape(showPullback and isTrendUp ? low : na, "▲ Pullback", shape.triangleup,
+  location.belowbar, warnColor, -1, "", size = size.tiny, display = display.pane)
+
+labelTextColor = showLabels ? color.black : clearColor
+plotshape(signalDn[1] ? upper[1] : na, "▼ Reversal", showLabels?shape.labeldown:shape.circle,
+  location.absolute, dnColor, -1, "▼", labelTextColor, size=size.tiny, display = display.pane)
+plotshape(signalUp[1] ? lower[1] : na, "▲ Reversal", showLabels?shape.labelup:shape.circle,
+  location.absolute, upColor, -1, "▲", labelTextColor, size=size.tiny, display = display.pane)
+
+var hiLabel = label.new(bar, float(na), na, xloc.bar_index, yloc.abovebar, color.red, label.style_triangledown, color.gray, size.tiny)
+var loLabel = label.new(bar, float(na), na, xloc.bar_index, yloc.belowbar, color.green, label.style_triangleup, color.gray, size.tiny)
+
+hiBar = false
+loBar = false
+var hiLabelMark = high
+var loLabelMark = low
+
+if confirmMA_c > 0 and trend > 0 and high > hiLabelMark
+    hiLabelMark := high
+    label.set_x(hiLabel, bar)
+    hiBar := true
+else if trend < 0
+    hiLabelMark := high
+
+if confirmMA_c < 0 and trend < 0 and low < loLabelMark
+    loLabelMark := low
+    label.set_x(loLabel, bar)
+    loBar := true
+else if trend > 0
+    loLabelMark := low
+
+
+vwapHiColor = color.yellow
+vwapLoColor = color.blue
+vwapHi = ta.vwap(hlc3, hiBar)
+vwapHiHi = ta.vwap(high, hiBar)
+vwapLo = ta.vwap(hlc3, loBar)
+vwapLoLo = ta.vwap(low, loBar)
+
+vwapHiPlot =plot(ta.vwap(hlc3, hiBar), "VWAP High", clearColor, 4)
+vwapLoPlot = plot(ta.vwap(hlc3, loBar), "VWAP Low", clearColor, 4)
+vwapHiHiPlot = plot(vwapHiHi, "VWAP High (of High)", vwapHiColor, 1, plot.style_circles)
+vwapLoLoPlot = plot(vwapLoLo, "VWAP Low (of Low)", vwapLoColor, 1, plot.style_circles)
+
+fill(vwapHiPlot, vwapHiHiPlot, vwapHi, vwapHiHi, color.new(vwapHiColor, 100), color.new(vwapHiColor, 65), "VWAP High Band")
+fill(vwapLoPlot, vwapLoLoPlot, vwapLo, vwapLoLo, color.new(vwapLoColor, 100), color.new(vwapLoColor, 65), "VWAP Low Band")
+
+// Highlight
+highlight = plot(highlighting ? ohlc4 : na, "OHLC4", clearColor, display=display.none)
+fill(highlight, upperPlot, upper, ohlc4, isTrendDn ? color.new(dnColor, 75) : clearColor, isTrendDn ? color.new(dnColor, 90) : clearColor, "▼ Highlight", display = highlighting ? display.all : display.none)
+fill(highlight, lowerPlot, lower, ohlc4, isTrendUp ? color.new(upColor, 75) : clearColor, isTrendUp ? color.new(upColor, 90) : clearColor, "▲ Highlight", display = highlighting ? display.all : display.none)
+
+// Alerts
+alertcondition(warn or reversal,
+  "1) Warning", message="Auto SuperTrend+ Warning ({{ticker}} {{interval}})")
+alertcondition(reversal,
+  "2) Reversal", message="Auto SuperTrend+ Reversal ({{ticker}} {{interval}})")
+alertcondition(showPullback,
+  "3) Reversal+Pullback", message="Auto SuperTrend+ Reversal+Pullback ({{ticker}} {{interval}})")  
+alertcondition(pullback,
+  "4) Pullback", message="Auto SuperTrend+ Pullback ({{ticker}} {{interval}})")
+alertcondition(signalUp,
+  "5) Up ▲ (+)", message="Auto SuperTrend+ Up ▲ (+) ({{ticker}} {{interval}})")
+alertcondition(signalDn,
+  "6) Down ▼ (-)", message="Auto SuperTrend+ Down ▼ (-) ({{ticker}} {{interval}})")

@@ -1,0 +1,40 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified
+
+//@version=5
+indicator("Local Limit Levels", "LLL", overlay=true)
+import Electrified/LocalLimit/7 as LL
+
+var PADDING = "Padding", MINIMUM = "Padding Minimum"
+var SOURCE = "Source", VALUE = "Value", PERCENT = "Percent"
+
+var level = input.int(
+  1, "Level", 0, 4,
+  group = "Local Limit",
+  tooltip = "The local limit level to use.\n\n0 is the baseline measurement.\n1 is the default.\n4 is the maximum.")
+
+padding = input.source(
+  close, SOURCE,
+  group = PADDING,
+  tooltip = "A series that defines how much the local limit level-1 should distance itself from the price when tightening.\n\n"+
+  "Note: leaving this as 'close' will set the padding to zero.")
+
+// If 'close' (default) was selected then set to zero.
+if padding == close
+    padding := 0.0
+
+level0 = LL.of()
+level1 = LL.of(level0, padding)
+level2 = LL.of(level1)
+level3 = LL.of(level2)
+level4 = LL.of(level3)
+
+selectedLevel = switch level
+    0 => level0
+    1 => level1
+    2 => level2
+    3 => level3
+    4 => level4
+
+plot(selectedLevel.upper.value, "Upper", color.green, 2, plot.style_circles)
+plot(selectedLevel.lower.value, "Lower", color.red, 2, plot.style_circles)

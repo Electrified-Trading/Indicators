@@ -1,0 +1,96 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified
+
+//@version=5
+indicator("Risk Level", overlay = true)
+import Electrified/TableBuilder/14 as Table
+
+// Inputs
+stopLevel = input.source(low,
+  "Stop Source",
+  "The source value for the stop")
+
+priceSrc = input.source(high,
+  "Price Source")
+
+var posSizeMax = input.float(10000,
+  "Max Position Size", 0, step = 1000)
+
+var posMaxRisk = input.float(200,
+  "Max Risk Level")
+
+var fractional = input.bool(false,
+  "Fractional Shares",
+  "When true the share values can have decimal places.")
+
+var position = input.string(position.bottom_right,
+  "Position", [position.bottom_right, position.top_right],
+  group = "Display", inline = "position")
+
+var expanded = not input.bool(false,
+  "Compact Display",
+  "When true will only show the total shares and the stop level.",
+  group = "Display")
+
+// Calculate
+riskDiff = priceSrc - stopLevel
+shares = posMaxRisk / riskDiff
+
+total = shares * priceSrc
+if total > posSizeMax or total < -posSizeMax
+    shares := posSizeMax / priceSrc
+
+if not fractional
+    shares := shares < 0 ? math.ceil(shares) : math.floor(shares)
+
+total := math.abs(shares * priceSrc)
+riskAmount = math.abs(shares * riskDiff)
+
+// Build the table.
+rows = array.new<Table.Row>()
+
+addRowText(string label, string value) =>
+    row = rows.addRow()
+    row.addCell(expanded ? label : "")
+    row.addCell(value)
+    row
+
+addRow(string label, float value, string format) =>
+    row = rows.addRow()
+    row.addCell(expanded ? label : "")
+    row.addCell(value, format)
+    row
+
+addPriceRow4(string label, float value) =>
+    addRow(label, value, "#,##0.00##")
+
+addPriceRow(string label, float value) =>
+    addRow(label, value, "$#,##0.00")
+
+addRowText("", "Risk").addCell("Level")
+if expanded
+    addPriceRow("", posMaxRisk).addCell("max")
+    addPriceRow4("", priceSrc).addCell("cost")
+addPriceRow4("- ", stopLevel).addCell("stop")
+if expanded
+    addPriceRow4("= ", riskDiff)
+addRow("x ", shares, "0.####").addCell(shares==1 ? "share" : "shares")
+if expanded
+    addPriceRow("= ", riskAmount).addCell("risk")
+    addPriceRow("", total).addCell("size")
+
+tbl = Table.initialize(rows, position, #111111,
+  frame = Table.LineStyle.new(color.red, 1))
+tbl.style(align = Table.CellAlign.new(text.align_right))  
+
+// Style the header row.
+tbl.styleColumn(2, align = Table.CellAlign.new(text.align_left))
+tbl.styleRow(0, color.red)
+tbl.styleRow(expanded ? 5 : 2, color.red)
+if expanded
+    tbl.styleRow(6, color.red)
+tbl.table.cell_set_text_color(1, expanded ? 3 : 1, color.white)
+tbl.table.cell_set_text_color(1, expanded ? 5 : 2, color.white)
+
+plot(stopLevel, "Stop Level", color.new(color.red, 20), 2, plot.style_circles)
+plot(shares, "Shares", color = color.gray, display = display.status_line)
