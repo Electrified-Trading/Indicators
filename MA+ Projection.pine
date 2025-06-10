@@ -1,0 +1,125 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified
+
+//@version = 5
+//@description = This indicator helps forecast the future values of a moving average by considering the effect of historical data loss. It provides a practical view on how the moving average could change as older data points drop off over time. Notable features include optional deviation bands for a more comprehensive trend analysis and the ability to smooth the average using the last source value. This tool is designed for visualizing the possible future direction of moving averages, aiding in market analysis.
+indicator("MA+ Projection", overlay = true) // thumb = 2
+import Electrified/Time/7
+import Electrified/MovingAverages/10 as MA
+import Electrified/Averages/6 as Average
+
+// Repainting note:
+// This indicator is not meant for alters but for visualization.
+// Repainting is unavoidable as each tick will cause the redrawing of the projection
+// and should only calculate and render on the last bar.
+
+// Constants
+SMA = 'SMA', EMA = 'EMA', WMA = 'WMA', VWMA = 'VWMA', VAWMA = 'VAWMA'
+BARS = 'Bars', MINUTES = 'Minutes', DAYS = 'Days'
+SOURCE = 'Source', LENGTH = 'Length', PROJECT = 'Project %', DEVIATION = "Deviation"
+MOVINGAVERAGE = 'Moving Average', PROJECTION = 'Projection'
+
+//////////////////////////////
+//// Configuration ///////////
+//////////////////////////////
+
+// Moving Avearage Configuration
+src = input.source(close, SOURCE, "", SOURCE, MOVINGAVERAGE)
+var type = input.string("SMA", "", [SMA, EMA, WMA, VWMA, VAWMA],
+  "The source and type of moving average to calculate", SOURCE, MOVINGAVERAGE)
+
+var length = Time.spanToIntLen(
+  input.int(200,LENGTH, 1, 5000, 5, "", LENGTH, MOVINGAVERAGE),
+  input.string(BARS, "", [BARS, MINUTES, DAYS],
+  "The length of the caclulcation.", LENGTH, MOVINGAVERAGE))
+
+showDataStart = input.bool(false,
+  "Highlight 'Start of Data'",
+  "When true, highlights the previous bar before the data is being mesaured for the calculation.",
+  na, MOVINGAVERAGE)
+  and barstate.islast
+
+// Projection Configuration
+var useLastBar = input.bool(true,
+  "Use Last Source Value",
+  "Replaces lost values with the last value of the source to smooth out the average",
+  na, PROJECTION)
+
+var projectPercent = input.float(25, PROJECT, 1, 100, 5,
+  "The amount of the measurement length to project forward.",
+  PROJECT, PROJECTION)
+var int projectLen = math.floor(length * projectPercent / 100)
+var devLen = length * 10
+
+var deviationMultiple = input.float(2, DEVIATION, 0, 10, 0.5, "", DEVIATION, PROJECTION)
+var showDeviation = input.bool(true, "Show",
+  "Controls the size (number of standard deviations) and visibility of the deviation 'cone'.",
+  DEVIATION, PROJECTION)
+
+// Theme
+var lineColor = input.color(color.orange, "Color", "", na, "Theme")
+//////////////////////////////
+
+
+ma = MA.get(type, length, src)
+max_bars_back(ma, 5000)
+plot(ma, "MA", lineColor, 2)
+
+getAverage(float[] values, float[] vol) =>
+    switch type
+        EMA => Average.exponential(values)
+        WMA => Average.triangular(values),
+        VWMA => Average.weighted(values, vol)
+        VAWMA => Average.triangularWeighted(values, vol)
+        => values.avg()
+
+addProjection(chart.point[] points, color lc = na) =>
+    polyline.new(points, true, line_color = na(lc) ? lineColor : lc, line_width = 2, line_style = line.style_dotted, xloc = xloc.bar_index)
+
+var dataStartColor = color.new(lineColor, 50)
+bgcolor(showDataStart ? dataStartColor : na, -length, title = "Start of Data")
+
+// Populate the points array
+if barstate.islast
+    for p in polyline.all
+        p.delete()
+
+    currentPoint = chart.point.from_index(bar_index, ma)
+    points = array.new<chart.point>(projectLen, currentPoint)
+    pointsUpper = showDeviation ? array.new<chart.point>(projectLen, currentPoint) : na
+    pointsLower = showDeviation ? array.new<chart.point>(projectLen, currentPoint) : na
+    last = length - 1
+    a = array.new_float(last, ma)
+    vol = array.new_float(last, volume)
+
+    for i = 1 to last - 1
+        // Ensure the data is in order for use with different MAs.
+        index = last - i
+        a.set(index, src[i])
+        vol.set(index, volume[i])
+
+    for i = 1 to projectLen - 1
+        if useLastBar
+            a.push(src)
+            vol.push(volume)
+        value = getAverage(a, vol)
+        a.shift()
+        vol.shift()
+
+        bar = bar_index + i
+        points.set(i, chart.point.from_index(bar, value))
+        if showDeviation
+
+            da = array.new_float()
+            for n = 0 to devLen
+                da.push(math.abs(ma[n] - ma[n + i]))
+
+            d = da.stdev() * deviationMultiple
+
+            pointsUpper.set(i, chart.point.from_index(bar, value + d))
+            pointsLower.set(i, chart.point.from_index(bar, value - d))
+
+    if showDeviation
+        addProjection(pointsUpper, color.gray)
+        addProjection(pointsLower, color.gray)
+    addProjection(points)
