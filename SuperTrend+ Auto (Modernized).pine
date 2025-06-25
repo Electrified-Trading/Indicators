@@ -1,0 +1,428 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified (electrifiedtrading)
+
+//@version=6
+//@description Advanced SuperTrend indicator with automatic trend detection, confirmation logic, and enhanced visual features
+indicator("Auto SuperTrend+ (Modernized)", "ASTR+", overlay=true, format=format.price)
+
+import Electrified/MovingAverages/10 as MA
+import Electrified/DataCleaner/7 as DC
+import Electrified/Time/7
+
+///////////////////////////////////////////////////
+// ENUMS AND TYPES
+///////////////////////////////////////////////////
+
+// Trend direction constants for mathematical comparisons
+const int TREND_UP = 1
+const int TREND_DOWN = -1
+const int TREND_NEUTRAL = 0
+
+// Time span units enum
+enum TimeUnit
+    bars = "Bars"
+    minutes = "Minutes"
+    days = "Days"
+
+// Moving average types enum
+enum MovingAverageType
+    sma = "SMA"
+    ema = "EMA"
+    wma = "WMA"
+    vwma = "VWMA"
+    vawma = "VAWMA"
+
+// SuperTrend state type for organized data management
+type SuperTrendState
+    int trend
+    float upper
+    float lower
+    int brokenCount
+    bool wasTouched
+    bool reversalPullback
+
+///////////////////////////////////////////////////
+// CONSTANTS
+///////////////////////////////////////////////////
+
+// Input group names
+const string GROUP_CONFIRM = "Confirmation (Tolerance)"
+const string GROUP_VOLATILITY = "Volatility"
+const string GROUP_DEVIATION = "Deviation Measurement"
+const string GROUP_DISPLAY = "Display"
+const string GROUP_THEME = "Theme"
+const string GROUP_MOVING_AVERAGE = "Moving Average Confirmation"
+
+// Common values and limits
+const int MAX_BARS = 4000
+const int DEFAULT_DEVIATION_PERIOD = 1000
+const float DEFAULT_ATR_MULTIPLIER = 0.5
+const float DEFAULT_DEVIATION_MULTIPLIER = 1.5
+const int DEFAULT_CONFIRMATION_BARS = 2
+const int DEFAULT_TRANSPARENCY_LIGHT = 75
+const int DEFAULT_TRANSPARENCY_HEAVY = 90
+const int FULL_TRANSPARENCY = 100
+const int PEN_TRANSPARENCY = 25
+const int VWAP_TRANSPARENCY = 65
+
+// Chart display
+const color CLEAR_COLOR = color.new(color.gray, FULL_TRANSPARENCY)
+
+///////////////////////////////////////////////////
+// UTILITY FUNCTIONS
+///////////////////////////////////////////////////
+
+// Calculate deviation using weighted moving average and standard deviation
+calcDev(series float source, simple int devLen, simple float devMul) =>
+    wmaValue = ta.wma(source, devLen)
+    stdevValue = ta.wma(ta.stdev(source, math.min(devLen * 2, MAX_BARS)), devLen)
+    wmaValue + stdevValue * devMul
+
+// Create new SuperTrend state
+newSuperTrendState() =>
+    SuperTrendState.new(
+      trend = TREND_NEUTRAL,
+      upper = high,
+      lower = low,
+      brokenCount = 0,
+      wasTouched = false,
+      reversalPullback = false
+      )
+
+// Check if visual elements should be displayed based on bar limits
+shouldDisplay(simple int maxBarsVisible) =>
+    if maxBarsVisible == 0
+        true  // Show all bars when set to 0
+    else
+        bar_index >= last_bar_index - maxBarsVisible
+
+///////////////////////////////////////////////////
+// INPUTS
+///////////////////////////////////////////////////
+
+// Volatility measurement
+config_volSpan = input.float(1.0, "", minval=0.1, group=GROUP_VOLATILITY, inline=GROUP_VOLATILITY)
+config_volTimeUnit = input.enum(TimeUnit.days, "", options=[TimeUnit.bars, TimeUnit.minutes, TimeUnit.days],
+  group=GROUP_VOLATILITY, inline=GROUP_VOLATILITY,
+  tooltip="The amount of time/bars to measure the range of movement.")
+
+// Deviation measurement
+config_devMul = input.float(DEFAULT_DEVIATION_MULTIPLIER, "Level", minval=0.1, step=0.1, group=GROUP_DEVIATION,
+  tooltip="The maximum deviation before a trend has been broken/reversed.")
+config_devSpan = input.float(DEFAULT_DEVIATION_PERIOD, "", minval=0.1, group=GROUP_DEVIATION, inline=GROUP_DEVIATION)
+config_devTimeUnit = input.enum(TimeUnit.bars, "", options=[TimeUnit.bars, TimeUnit.minutes, TimeUnit.days],
+  group=GROUP_DEVIATION, inline=GROUP_DEVIATION,
+  tooltip="The amount of time/bars to measure the deviation of the range.")
+
+// Confirmation settings
+config_atrMul = input.float(DEFAULT_ATR_MULTIPLIER, "ATR Multiple", minval=0, step=0.5, group=GROUP_CONFIRM,
+  tooltip="The tolerance to give confirmation based upon the weighted average true range.")
+config_confirmBars = input.int(DEFAULT_CONFIRMATION_BARS, "Closed Bars", minval=0, group=GROUP_CONFIRM,
+  tooltip="The number of closed bars that have to exceed the super-trend value before the trend reversal is confirmed.")
+config_displayTolerance = input.bool(false, "Show Tolerance Lines?", group=GROUP_CONFIRM,
+  tooltip="Will add lines representing where the tolerance levels are.")
+
+// Moving average confirmation
+config_confirmMAType = input.enum(MovingAverageType.sma, "MA Type", options=[MovingAverageType.sma, MovingAverageType.ema,
+  MovingAverageType.wma, MovingAverageType.vwma, MovingAverageType.vawma],
+  inline=GROUP_CONFIRM, group=GROUP_MOVING_AVERAGE)
+config_confirmMASpan = input.float(5, "Period", inline=GROUP_CONFIRM, group=GROUP_MOVING_AVERAGE)
+config_confirmMATimeUnit = input.enum(TimeUnit.days, "Unit", options=[TimeUnit.bars, TimeUnit.minutes, TimeUnit.days],
+  inline=GROUP_CONFIRM, group=GROUP_MOVING_AVERAGE)
+
+// Display options
+config_highlighting = input.bool(true, "Show Background Highlighting?", group=GROUP_DISPLAY,
+  tooltip="Paints the background depending on whether the trend is up or down.")
+config_showLabels = input.bool(false, "Show Reversal Labels?", group=GROUP_DISPLAY,
+  tooltip="Adds labels to identify the point of reversal.")
+config_showMidpoint = input.bool(false, "Show Middle Point?", group=GROUP_DISPLAY,
+  tooltip="Displays the average of the upper and lower boundary.")
+config_showPullbacks = input.bool(true, "Show Pullback Signals?", group=GROUP_DISPLAY,
+  tooltip="Shows triangular markers when pullbacks occur within the trend.")
+config_showVWAP = input.bool(false, "Show AVVWAPs?", group=GROUP_DISPLAY,
+  tooltip="Shows anchored VWAP lines from trend reversals.")
+config_maxBarsVisible = input.int(500, "Visible Bars", minval=0, step=10, group=GROUP_DISPLAY,
+  tooltip="Limit the number of bars to display (0 = show all)")
+
+// Theme colors
+config_upColor = input.color(color.green, "▲ Bullish", group=GROUP_THEME, inline=GROUP_THEME)
+config_dnColor = input.color(color.red, "▼ Bearish", group=GROUP_THEME, inline=GROUP_THEME)
+config_warnColor = input.color(color.yellow, "⚠ Warning", group=GROUP_THEME, inline=GROUP_THEME)
+
+///////////////////////////////////////////////////
+// DERIVED COLORS
+///////////////////////////////////////////////////
+
+upPen = color.new(config_upColor, PEN_TRANSPARENCY)
+dnPen = color.new(config_dnColor, PEN_TRANSPARENCY)
+warnPen = color.new(config_warnColor, PEN_TRANSPARENCY)
+
+///////////////////////////////////////////////////
+// TIME CALCULATIONS
+///////////////////////////////////////////////////
+
+// Track bar index without calling bar_index repeatedly
+var int bar = -1
+bar += 1
+
+// Convert time spans to bar lengths
+volLen = math.min(MAX_BARS, Time.spanToIntLen(config_volSpan, str.tostring(config_volTimeUnit)))
+devLen = Time.spanToIntLen(config_devSpan, str.tostring(config_devTimeUnit))
+
+// Clamp/adjust lengths that are too large
+adjustedDevLen = volLen > devLen ? volLen * 2 : devLen
+finalDevLen = math.min(adjustedDevLen, MAX_BARS)
+
+///////////////////////////////////////////////////
+// CORE CALCULATIONS
+///////////////////////////////////////////////////
+
+// Calculate ATR with outlier filtering
+atr = ta.wma(DC.naOutliers(ta.tr, finalDevLen, 2.5), finalDevLen)
+// Handle NA values by defaulting to 0
+cleanATR = na(atr) ? 0.0 : atr
+tolerance = cleanATR * config_atrMul
+
+// Calculate moving average confirmation signal
+confirmMA = MA.get(str.tostring(config_confirmMAType), Time.spanToIntLen(config_confirmMASpan, str.tostring(config_confirmMATimeUnit)), hlc3)
+confirmMA_change = ta.change(confirmMA, 2)
+
+// Calculate upper and lower deviations
+upDev = calcDev(math.max(high - low[volLen], 0), finalDevLen, config_devMul)
+dnDev = calcDev(math.max(high[volLen] - low, 0), finalDevLen, config_devMul)
+
+// Initialize SuperTrend state
+var SuperTrendState state = newSuperTrendState()
+
+// Warning and broken conditions
+upperWarning = close > state.upper
+lowerWarning = close < state.lower
+upperBroken = close[1] - tolerance > state.upper
+lowerBroken = close[1] + tolerance < state.lower
+
+// State management variables
+warn = false
+reversal = false
+
+///////////////////////////////////////////////////
+// TREND LOGIC
+///////////////////////////////////////////////////
+
+// Handle uptrend state
+if state.trend == TREND_UP
+    if upperWarning
+        state.brokenCount := 0
+        state.wasTouched := false
+    if lowerWarning
+        state.wasTouched := true
+        warn := true
+else
+    if lowerBroken
+        state.lower := low[1]
+    if upperBroken
+        state.brokenCount += 1
+
+// Handle downtrend state
+if state.trend == TREND_DOWN
+    if lowerWarning
+        state.brokenCount := 0
+        state.wasTouched := false
+    if upperWarning
+        state.wasTouched := true
+        warn := true
+else
+    if upperBroken
+        state.upper := high[1]
+    if lowerBroken
+        warn := true
+        state.brokenCount += 1
+
+// Trend reversal detection
+if state.trend != TREND_UP
+    immediateReversal = low > state.upper + tolerance
+    confirmedReversal = state.brokenCount > config_confirmBars
+    if confirmedReversal or immediateReversal
+        state.trend := TREND_UP
+        state.upper := high[1]
+        reversal := true
+
+else if state.trend != TREND_DOWN
+    immediateReversal = high < state.lower - tolerance
+    confirmedReversal = state.brokenCount > config_confirmBars
+    if confirmedReversal or immediateReversal
+        state.trend := TREND_DOWN
+        state.lower := low[1]
+        reversal := true
+
+// Reset state on reversal
+if reversal
+    state.reversalPullback := false
+    state.wasTouched := false
+    state.brokenCount := 0
+
+// Range adjustment
+upperAdjustment = low[1] + tolerance < state.upper - dnDev
+lowerAdjustment = high[1] - tolerance > state.lower + upDev
+
+if upperAdjustment
+    state.upper := low[1] + dnDev
+if lowerAdjustment
+    state.lower := high[1] - upDev
+
+///////////////////////////////////////////////////
+// SIGNAL DETECTION
+///////////////////////////////////////////////////
+
+trendChange = ta.change(state.trend)
+signalUp = state.trend == TREND_UP and trendChange > 0
+signalDn = state.trend == TREND_DOWN and trendChange < 0
+isTrendUp = na(state[1]) ? false : (state[1]).trend == TREND_UP
+isTrendDn = na(state[1]) ? false : (state[1]).trend == TREND_DOWN
+
+// Calculate midpoint
+middle = (state.lower + state.upper) / 2
+
+// Pullback detection
+pullbackConditionUp = isTrendUp and close > state.lower and close < middle
+pullbackConditionDn = isTrendDn and close < state.upper and close > middle
+pullback = pullbackConditionUp or pullbackConditionDn
+showPullback = pullback and not state.reversalPullback and state.trend == (na(state[1]) ? state.trend : (state[1]).trend)
+
+if showPullback
+    state.reversalPullback := true
+
+///////////////////////////////////////////////////
+// VWAP CALCULATIONS
+///////////////////////////////////////////////////
+
+// Label tracking for VWAP anchoring (only if VWAP display is enabled)
+var hiLabel = config_showVWAP ? label.new(bar, float(na), na, xloc.bar_index, yloc.abovebar, color.red, label.style_triangledown, color.gray, size.tiny) : na
+var loLabel = config_showVWAP ? label.new(bar, float(na), na, xloc.bar_index, yloc.belowbar, color.green, label.style_triangleup, color.gray, size.tiny) : na
+
+hiBar = false
+loBar = false
+var hiLabelMark = high
+var loLabelMark = low
+
+// Update VWAP anchor points (only if VWAP display is enabled)
+if config_showVWAP
+    if confirmMA_change > 0 and state.trend > TREND_NEUTRAL and high > hiLabelMark
+        hiLabelMark := high
+        label.set_x(hiLabel, bar)
+        hiBar := true
+    else if state.trend < TREND_NEUTRAL
+        hiLabelMark := high
+
+    if confirmMA_change < 0 and state.trend < TREND_NEUTRAL and low < loLabelMark
+        loLabelMark := low
+        label.set_x(loLabel, bar)
+        loBar := true
+    else if state.trend > TREND_NEUTRAL
+        loLabelMark := low
+
+// Calculate VWAPs
+vwapHi = ta.vwap(hlc3, hiBar)
+vwapHiHi = ta.vwap(high, hiBar)
+vwapLo = ta.vwap(hlc3, loBar)
+vwapLoLo = ta.vwap(low, loBar)
+
+///////////////////////////////////////////////////
+// VISUALIZATION
+///////////////////////////////////////////////////
+
+// Helper for display gating
+allowFill = shouldDisplay(config_maxBarsVisible)
+toleranceDisplay = config_displayTolerance ? display.all : display.none
+vwapDisplay = config_showVWAP ? display.pane : display.none
+labelDisplay = config_showLabels ? display.pane : display.none
+midpointDisplay = config_showMidpoint ? display.all : display.status_line
+
+// Tolerance lines
+plot(state.upper + tolerance, "Upper Tolerance",
+  isTrendDn ? dnPen : CLEAR_COLOR, 1, plot.style_circles,
+  display=toleranceDisplay, show_last=config_maxBarsVisible)
+
+plot(state.lower - tolerance, "Lower Tolerance",
+  isTrendUp ? upPen : CLEAR_COLOR, 1, plot.style_circles,
+  display=toleranceDisplay, show_last=config_maxBarsVisible)
+
+// Main SuperTrend lines
+upperPlot = plot(state.upper, "Upper Boundary",
+  isTrendDn ? (na(state[1]) ? dnPen : (state[1]).wasTouched ? warnPen : dnPen) : CLEAR_COLOR,
+  2, plot.style_linebr, show_last=config_maxBarsVisible)
+
+lowerPlot = plot(state.lower, "Lower Boundary",
+  isTrendUp ? (na(state[1]) ? upPen : (state[1]).wasTouched ? warnPen : upPen) : CLEAR_COLOR,
+  2, plot.style_linebr, show_last=config_maxBarsVisible)
+
+// Midpoint
+plot(middle, "Mid-Point",
+  isTrendUp ? upPen : isTrendDn ? dnPen : CLEAR_COLOR, 1, plot.style_circles,
+  display=midpointDisplay, show_last=config_maxBarsVisible)
+
+// Pullback signals (gated behind user control)
+plotshape(config_showPullbacks and showPullback and isTrendDn ? high : na, "▼ Pullback", shape.triangledown,
+  location.abovebar, config_warnColor, size=size.tiny, display=labelDisplay, show_last=config_maxBarsVisible)
+plotshape(config_showPullbacks and showPullback and isTrendUp ? low : na, "▲ Pullback", shape.triangleup,
+  location.belowbar, config_warnColor, size=size.tiny, display=labelDisplay, show_last=config_maxBarsVisible)
+
+// Reversal labels (gated behind user control)
+labelTextColor = color.black
+plotshape(config_showLabels and signalDn[1] ? (state[1]).upper : na, "▼ Reversal", shape.labeldown,
+  location.absolute, config_dnColor, text="▼", textcolor=labelTextColor,
+  size=size.tiny, display=labelDisplay, show_last=config_maxBarsVisible)
+plotshape(config_showLabels and signalUp[1] ? (state[1]).lower : na, "▲ Reversal", shape.labelup,
+  location.absolute, config_upColor, text="▲", textcolor=labelTextColor,
+  size=size.tiny, display=labelDisplay, show_last=config_maxBarsVisible)
+
+// VWAP plots (gated behind user control)
+vwapHiColor = color.yellow
+vwapLoColor = color.blue
+
+vwapHiPlot = plot(config_showVWAP ? vwapHi : na, "VWAP High", CLEAR_COLOR, 4,
+  display=vwapDisplay, show_last=config_maxBarsVisible)
+vwapLoPlot = plot(config_showVWAP ? vwapLo : na, "VWAP Low", CLEAR_COLOR, 4,
+  display=vwapDisplay, show_last=config_maxBarsVisible)
+vwapHiHiPlot = plot(config_showVWAP ? vwapHiHi : na, "VWAP High (of High)", vwapHiColor, 1, plot.style_circles,
+  display=vwapDisplay, show_last=config_maxBarsVisible)
+vwapLoLoPlot = plot(config_showVWAP ? vwapLoLo : na, "VWAP Low (of Low)", vwapLoColor, 1, plot.style_circles,
+  display=vwapDisplay, show_last=config_maxBarsVisible)
+
+// VWAP bands
+fill(vwapHiPlot, vwapHiHiPlot, config_showVWAP ? vwapHi : na, config_showVWAP ? vwapHiHi : na,
+  allowFill and config_showVWAP ? color.new(vwapHiColor, FULL_TRANSPARENCY) : CLEAR_COLOR,
+  allowFill and config_showVWAP ? color.new(vwapHiColor, VWAP_TRANSPARENCY) : CLEAR_COLOR,
+  "VWAP High Band", display=display.all)
+fill(vwapLoPlot, vwapLoLoPlot, config_showVWAP ? vwapLo : na, config_showVWAP ? vwapLoLo : na,
+  allowFill and config_showVWAP ? color.new(vwapLoColor, FULL_TRANSPARENCY) : CLEAR_COLOR,
+  allowFill and config_showVWAP ? color.new(vwapLoColor, VWAP_TRANSPARENCY) : CLEAR_COLOR,
+  "VWAP Low Band", display=display.all)
+
+// Background highlighting (gated behind user control)
+highlight = plot(ohlc4, "OHLC4", CLEAR_COLOR, display=display.none, show_last=config_maxBarsVisible)
+
+fill(highlight, upperPlot, config_highlighting ? state.upper : na, config_highlighting ? ohlc4 : na,
+  allowFill and config_highlighting and isTrendDn ? color.new(config_dnColor, DEFAULT_TRANSPARENCY_LIGHT) : CLEAR_COLOR,
+  allowFill and config_highlighting and isTrendDn ? color.new(config_dnColor, DEFAULT_TRANSPARENCY_HEAVY) : CLEAR_COLOR,
+  "▼ Highlight", display=display.all)
+fill(highlight, lowerPlot, config_highlighting ? state.lower : na, config_highlighting ? ohlc4 : na,
+  allowFill and config_highlighting and isTrendUp ? color.new(config_upColor, DEFAULT_TRANSPARENCY_LIGHT) : CLEAR_COLOR,
+  allowFill and config_highlighting and isTrendUp ? color.new(config_upColor, DEFAULT_TRANSPARENCY_HEAVY) : CLEAR_COLOR,
+  "▲ Highlight", display=display.all)
+
+///////////////////////////////////////////////////
+// ALERTS
+///////////////////////////////////////////////////
+
+alertcondition(warn or reversal, "1) Warning",
+  "Auto SuperTrend+ Warning ({{ticker}} {{interval}})")
+alertcondition(reversal, "2) Reversal",
+  "Auto SuperTrend+ Reversal ({{ticker}} {{interval}})")
+alertcondition(showPullback, "3) Reversal+Pullback",
+  "Auto SuperTrend+ Reversal+Pullback ({{ticker}} {{interval}})")
+alertcondition(pullback, "4) Pullback",
+  "Auto SuperTrend+ Pullback ({{ticker}} {{interval}})")
+alertcondition(signalUp, "5) Up ▲ (+)",
+  "Auto SuperTrend+ Up ▲ (+) ({{ticker}} {{interval}})")
+alertcondition(signalDn, "6) Down ▼ (-)",
+  "Auto SuperTrend+ Down ▼ (-) ({{ticker}} {{interval}})")

@@ -1,7 +1,7 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © Electrified (electrifiedtrading)
 
-//@version=5
+// @version=6
 indicator("Auto SuperTrend+", overlay = true, format=format.price)
 import Electrified/MovingAverages/10 as MA
 import Electrified/DataCleaner/7 as DC
@@ -67,7 +67,7 @@ if(devLen > 4000)
     devLen := 4000
 
 // Determine the normalized true range (for Bars)
-atr = na(ta.wma(DC.naOutliers(ta.tr, devLen, 2.5), devLen), atr[1])
+atr = ta.wma(DC.naOutliers(ta.tr, devLen, 2.5), devLen)
 // Because the outliers become NA we need to carry over the tolerance from the previous bar
 if na(atr)
     atr := atr[1]
@@ -116,7 +116,7 @@ if trend == DOWN
         wasTouched := false
     if upperWarning
         wasTouched := true
-        warn := true        
+        warn := true
 else
     if upperBroken
         upper := high[1]
@@ -126,7 +126,7 @@ else
 
 if trend != UP
     // If the low exceeds the threshold then confirmation is not required.
-    if brokenCount > confirmBars or low > upper + tolerance 
+    if brokenCount > confirmBars or low > upper + tolerance
         trend := UP
         upper := high[1]
         reversal := true
@@ -155,21 +155,24 @@ signalDn = trend == DOWN and trendChange < 0
 isTrendUp = trend[1] == UP
 isTrendDn = trend[1] == DOWN
 
+
+var maxBarsVisible = input.int(0, "Visible Bars", 0, step = 10)
+
 // Plots
 plot(upper + tolerance, "Upper Tolerance",
-  isTrendDn ? dnPen : clearColor, 1, plot.style_circles, display = displayTolerance)
+  isTrendDn ? dnPen : clearColor, 1, plot.style_circles, display = displayTolerance, show_last = maxBarsVisible)
 upperPlot = plot(upper, "Upper Boundary",
-  isTrendDn ? wasTouched[1] ? warnPen : dnPen : clearColor, 2, plot.style_linebr)
+  isTrendDn ? wasTouched[1] ? warnPen : dnPen : clearColor, 2, plot.style_linebr, show_last = maxBarsVisible)
 
 middle = (lower + upper) / 2
 plot(middle, "Mid-Point",
   isTrendUp ? upPen : isTrendDn ? dnPen : clearColor, 1, plot.style_circles,
-  display = showMidpoint ? display.all : display.status_line)
+  display = showMidpoint ? display.all : display.status_line, show_last = maxBarsVisible)
 
 lowerPlot = plot(lower, "Lower Boundary",
-  isTrendUp ? wasTouched[1]?warnPen:upPen : clearColor, 2, plot.style_linebr)
+  isTrendUp ? wasTouched[1]?warnPen:upPen : clearColor, 2, plot.style_linebr, show_last = maxBarsVisible)
 plot(lower - tolerance, "Lower Tolerance",
-  isTrendUp ? upPen : clearColor, 1, plot.style_circles, display = displayTolerance)
+  isTrendUp ? upPen : clearColor, 1, plot.style_circles, display = displayTolerance, show_last = maxBarsVisible)
 
 pullback = isTrendUp and close>lower ? close<middle : isTrendDn and close<upper ? close>middle : false
 showPullback = pullback and not reversalPullback and trend[0]==trend[1]
@@ -178,15 +181,15 @@ if showPullback
 
 // Labels
 plotshape(showPullback and isTrendDn ? high : na, "▼ Pullback", shape.triangledown,
-  location.abovebar, warnColor, -1, "", size = size.tiny, display = display.pane)
+  location.abovebar, warnColor, -1, "", size = size.tiny, display = display.pane, show_last = maxBarsVisible)
 plotshape(showPullback and isTrendUp ? low : na, "▲ Pullback", shape.triangleup,
-  location.belowbar, warnColor, -1, "", size = size.tiny, display = display.pane)
+  location.belowbar, warnColor, -1, "", size = size.tiny, display = display.pane, show_last = maxBarsVisible)
 
 labelTextColor = showLabels ? color.black : clearColor
 plotshape(signalDn[1] ? upper[1] : na, "▼ Reversal", showLabels?shape.labeldown:shape.circle,
-  location.absolute, dnColor, -1, "▼", labelTextColor, size=size.tiny, display = display.pane)
+  location.absolute, dnColor, -1, "▼", labelTextColor, size=size.tiny, display = display.pane, show_last = maxBarsVisible)
 plotshape(signalUp[1] ? lower[1] : na, "▲ Reversal", showLabels?shape.labelup:shape.circle,
-  location.absolute, upColor, -1, "▲", labelTextColor, size=size.tiny, display = display.pane)
+  location.absolute, upColor, -1, "▲", labelTextColor, size=size.tiny, display = display.pane, show_last = maxBarsVisible)
 
 var hiLabel = label.new(bar, float(na), na, xloc.bar_index, yloc.abovebar, color.red, label.style_triangledown, color.gray, size.tiny)
 var loLabel = label.new(bar, float(na), na, xloc.bar_index, yloc.belowbar, color.green, label.style_triangleup, color.gray, size.tiny)
@@ -210,6 +213,7 @@ if confirmMA_c < 0 and trend < 0 and low < loLabelMark
 else if trend > 0
     loLabelMark := low
 
+allowFill = maxBarsVisible == 0 or bar_index > last_bar_index - maxBarsVisible
 
 vwapHiColor = color.yellow
 vwapLoColor = color.blue
@@ -218,18 +222,20 @@ vwapHiHi = ta.vwap(high, hiBar)
 vwapLo = ta.vwap(hlc3, loBar)
 vwapLoLo = ta.vwap(low, loBar)
 
-vwapHiPlot =plot(ta.vwap(hlc3, hiBar), "VWAP High", clearColor, 4)
-vwapLoPlot = plot(ta.vwap(hlc3, loBar), "VWAP Low", clearColor, 4)
-vwapHiHiPlot = plot(vwapHiHi, "VWAP High (of High)", vwapHiColor, 1, plot.style_circles)
-vwapLoLoPlot = plot(vwapLoLo, "VWAP Low (of Low)", vwapLoColor, 1, plot.style_circles)
+vwapEnabled = input.bool(false, "Show AVVWAPs")
 
-fill(vwapHiPlot, vwapHiHiPlot, vwapHi, vwapHiHi, color.new(vwapHiColor, 100), color.new(vwapHiColor, 65), "VWAP High Band")
-fill(vwapLoPlot, vwapLoLoPlot, vwapLo, vwapLoLo, color.new(vwapLoColor, 100), color.new(vwapLoColor, 65), "VWAP Low Band")
+vwapHiPlot = plot(ta.vwap(hlc3, hiBar), "VWAP High", clearColor, 4, display = vwapEnabled ? display.pane : display.none, show_last = maxBarsVisible)
+vwapLoPlot = plot(ta.vwap(hlc3, loBar), "VWAP Low", clearColor, 4, display = vwapEnabled ? display.pane : display.none, show_last = maxBarsVisible)
+vwapHiHiPlot = plot(vwapHiHi, "VWAP High (of High)", vwapHiColor, 1, plot.style_circles, display = vwapEnabled ? display.pane : display.none, show_last = maxBarsVisible)
+vwapLoLoPlot = plot(vwapLoLo, "VWAP Low (of Low)", vwapLoColor, 1, plot.style_circles, display = vwapEnabled ? display.pane : display.none, show_last = maxBarsVisible)
+
+fill(vwapHiPlot, vwapHiHiPlot, vwapHi, vwapHiHi, allowFill ? color.new(vwapHiColor, 100) : clearColor, allowFill ? color.new(vwapHiColor, 65) : clearColor, "VWAP High Band", display = vwapEnabled ? display.all : display.none)
+fill(vwapLoPlot, vwapLoLoPlot, vwapLo, vwapLoLo, allowFill ? color.new(vwapLoColor, 100) : clearColor, allowFill? color.new(vwapLoColor, 65) : clearColor, "VWAP Low Band", display = vwapEnabled ? display.all : display.none)
 
 // Highlight
-highlight = plot(highlighting ? ohlc4 : na, "OHLC4", clearColor, display=display.none)
-fill(highlight, upperPlot, upper, ohlc4, isTrendDn ? color.new(dnColor, 75) : clearColor, isTrendDn ? color.new(dnColor, 90) : clearColor, "▼ Highlight", display = highlighting ? display.all : display.none)
-fill(highlight, lowerPlot, lower, ohlc4, isTrendUp ? color.new(upColor, 75) : clearColor, isTrendUp ? color.new(upColor, 90) : clearColor, "▲ Highlight", display = highlighting ? display.all : display.none)
+highlight = plot(highlighting ? ohlc4 : na, "OHLC4", clearColor, display=display.none, show_last = maxBarsVisible)
+fill(highlight, upperPlot, upper, ohlc4, allowFill and isTrendDn ? color.new(dnColor, 75) : clearColor, allowFill and isTrendDn ? color.new(dnColor, 90) : clearColor, "▼ Highlight", display = highlighting ? display.all : display.none)
+fill(highlight, lowerPlot, lower, ohlc4, allowFill and isTrendUp ? color.new(upColor, 75) : clearColor, allowFill and isTrendUp ? color.new(upColor, 90) : clearColor, "▲ Highlight", display = highlighting ? display.all : display.none)
 
 // Alerts
 alertcondition(warn or reversal,
@@ -237,7 +243,7 @@ alertcondition(warn or reversal,
 alertcondition(reversal,
   "2) Reversal", message="Auto SuperTrend+ Reversal ({{ticker}} {{interval}})")
 alertcondition(showPullback,
-  "3) Reversal+Pullback", message="Auto SuperTrend+ Reversal+Pullback ({{ticker}} {{interval}})")  
+  "3) Reversal+Pullback", message="Auto SuperTrend+ Reversal+Pullback ({{ticker}} {{interval}})")
 alertcondition(pullback,
   "4) Pullback", message="Auto SuperTrend+ Pullback ({{ticker}} {{interval}})")
 alertcondition(signalUp,
