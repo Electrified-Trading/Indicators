@@ -8,30 +8,31 @@ import Electrified/Time/9
 import Electrified/MovingAverages/13 as MA
 import Electrified/DataCleaner/11 as Data
 
-var ATR = "Average True Range (ATR)", MINIMUM = "Minimum Value"
-var LENGTH = "Length"
+const string ATR = "Average True Range (ATR)"
+const string MINIMUM = "Minimum Value"
+const string LENGTH = "Length"
 
-var len = Time.spanToIntLen(
+len = Time.spanToIntLen(
   input.int(200,LENGTH, 1, group = ATR,
   tooltip = "The number of units to measure the average true range."),
   input.enum(Time.Unit.Bars, "Units", group = ATR))
 
-var maxOutlier = input.float(3.5,
+maxOutlier = input.float(3.5,
   "Max Outlier",
   tooltip = "The maximum outlier level to allow when calculating the average true range.",
   group = ATR),
 
-var smooth = input.int(100,
+smooth = input.int(100,
   "Smoothing",
   tooltip = "The number of bars to average in order to smooth out the result.",
   group = ATR)
 
-var minPadValue = input.float(0.0,
+minPadValue = input.float(0.0,
   "Value", 0, step = 0.01,
   tooltip = "The minimum value.",
   group = MINIMUM)
 
-var minPadPercent = input.float(0.0,
+minPadPercent = input.float(0.0,
   "Close (%)", 0, step = 0.25,
   tooltip = "The percent of the close to include as the minimum.",
   group = MINIMUM) / 100

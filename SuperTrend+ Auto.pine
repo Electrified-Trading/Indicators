@@ -5,60 +5,67 @@
 indicator("Auto SuperTrend+", overlay = true, format=format.price)
 import Electrified/MovingAverages/10 as MA
 import Electrified/DataCleaner/7 as DC
-import Electrified/Time/7
+import Electrified/Time/9
 
 // Constants
-CONFIRM = "Confirmation (Tolerance)", VOLATILITY = "Volatility", DEVIATION = "Deviation Measurement", DISPLAY = "Display", THEME = "Theme"
-MINUTES = "Minutes", DAYS = "Days", BARS = "Bars"
+const string CONFIRM = "Confirmation (Tolerance)"
+const string VOLATILITY = "Volatility"
+const string DEVIATION = "Deviation Measurement"
+const string DISPLAY = "Display"
+const string THEME = "Theme"
+
 MOVING_AVERAGE = "Moving Average Confirmation"
 SMA = 'SMA', EMA = 'EMA', WMA = 'WMA', VWMA = 'VWMA', VAWMA = 'VAWMA'
 UP = +1, DOWN = -1
-clearColor = color.new(color.gray, 100)
-
-// Track bar index wihtout calling bar_index.
-var int bar = -1
-bar += 1
 
 // Parameters
 volLen = math.min(4000, Time.spanToIntLen(
   input.float(1.0, "", minval = 0.1, group=VOLATILITY, inline = VOLATILITY),
-  input.string(DAYS, "", options=[BARS, MINUTES, DAYS], group=VOLATILITY, inline = VOLATILITY,
+  input.enum(Time.Unit.Days, "", group=VOLATILITY, inline = VOLATILITY,
   tooltip = "The amount of time/bars to measure the range of movement.")))
 devMul = input.float(1.5, "Level", minval = 0.1, step = 0.1, group = DEVIATION,
   tooltip = "The maximum deviation before a trend has been broken/reversed.")
 devLen = Time.spanToIntLen(
   input.float(1000, "", minval = 0.1, group=DEVIATION, inline = DEVIATION),
-  input.string(BARS, "", options=[BARS, MINUTES, DAYS], group=DEVIATION, inline = DEVIATION,
+  input.enum(Time.Unit.Bars, "", group=DEVIATION, inline = DEVIATION,
   tooltip = "The amount of time/bars to measure the deviation of the range."))
 atrMul = input.float(0.5, "ATR Multiple", minval = 0, step = 0.5, group=CONFIRM,
   tooltip="The tolerance to give confirmation based upon the weighted average true range.")
 confirmBars = input.int(2, "Closed Bars", minval = 0, group=CONFIRM,
   tooltip="The number of closed Bars that have to exceed the super-trend value before the trend reversal is confirmed.")
 displayTolerance = input.bool(false, "Show?", "Will add a line representing where the tolerance level is.", group=CONFIRM) ? display.all : display.none
-// slowMA default: WMA of 7 days.
-// This can also be set to SMA of 5 days to create a useful divergence and visualization to demonstrate the difference in the two.
-confirmMA = MA.get(
-  input.string(SMA, "", options = [SMA, EMA, WMA, VWMA, VAWMA], inline = CONFIRM, group = MOVING_AVERAGE),
-  Time.spanToIntLen(
-  input.float(5, "", inline = CONFIRM, group = MOVING_AVERAGE),
-  input.string(DAYS, "", options = [BARS, MINUTES, DAYS], inline = CONFIRM, group = MOVING_AVERAGE)),
-  hlc3)
-confirmMA_c = ta.change(confirmMA, 2)
 
-highlighting = input(true, "Show Highlighter ?", group=DISPLAY,
+highlighting = input.bool(true, "Show Highlighter ?", group=DISPLAY,
   tooltip = "Paints the background depending on whether the trend is up or down.")
-showLabels = input(false, title="Show Reversal Labels ?", group=DISPLAY,
+showLabels = input.bool(false, title="Show Reversal Labels ?", group=DISPLAY,
   tooltip = "Adds labels to identify the point of reversal.")
-showMidpoint = input(false, "Show Middle Point ?", group=DISPLAY,
+showMidpoint = input.bool(false, "Show Middle Point ?", group=DISPLAY,
   tooltip = "Displays the average of the upper and lower boundary.")
 
+var maxBarsVisible = input.int(500, "Visible Bars", 0, step = 10, group=DISPLAY)
+
 // Theme
+clearColor = color.new(color.gray, 100)
 upColor = input.color(color.green, "▲", group = THEME, inline = THEME)
 dnColor = input.color(color.red, "▼", group = THEME, inline = THEME)
 warnColor = input.color(color.yellow, "⚠", group = THEME, inline = THEME)
 upPen = color.new(upColor, 25)
 dnPen = color.new(dnColor, 25)
 warnPen = color.new(warnColor, 25)
+
+// Track bar index wihtout calling bar_index.
+var int bar = -1
+bar += 1
+
+// slowMA default: WMA of 7 days.
+// This can also be set to SMA of 5 days to create a useful divergence and visualization to demonstrate the difference in the two.
+confirmMA = MA.get(
+  input.string(SMA, "", options = [SMA, EMA, WMA, VWMA, VAWMA], inline = CONFIRM, group = MOVING_AVERAGE),
+  Time.spanToIntLen(
+  input.float(5, "", inline = CONFIRM, group = MOVING_AVERAGE),
+  input.enum(Time.Unit.Days, "", inline = CONFIRM, group = MOVING_AVERAGE)),
+  hlc3)
+confirmMA_c = ta.change(confirmMA, 2)
 
 // Clamp/adjust lenghts that are too large
 if(volLen>devLen)
@@ -156,7 +163,6 @@ isTrendUp = trend[1] == UP
 isTrendDn = trend[1] == DOWN
 
 
-var maxBarsVisible = input.int(0, "Visible Bars", 0, step = 10)
 
 // Plots
 plot(upper + tolerance, "Upper Tolerance",
@@ -213,7 +219,7 @@ if confirmMA_c < 0 and trend < 0 and low < loLabelMark
 else if trend > 0
     loLabelMark := low
 
-allowFill = maxBarsVisible == 0 or bar_index > last_bar_index - maxBarsVisible
+allowFill = maxBarsVisible != 0 and bar_index > last_bar_index - maxBarsVisible
 
 vwapHiColor = color.yellow
 vwapLoColor = color.blue
