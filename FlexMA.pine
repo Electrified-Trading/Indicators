@@ -21,3 +21,16 @@ maLen = Time.spanToIntLen(timespan, timeUnit)
 flexMA = MA.get(maType, maLen, src)
 
 plot(flexMA, "FlexMA", color=color.new(color.blue, 0), linewidth = 3)
+
+// Alert conditions with static titles (Pine Script v6 requirement)
+alertcondition(ta.cross(src, flexMA),
+  title="🔀 Value Crossing Average",
+  message="FlexMA: {{ticker}} source value has crossed the moving average at {{plot_0}}")
+
+alertcondition(ta.rising(flexMA, 2),
+  title="⤴️ Turning Up",
+  message="FlexMA: {{ticker}} moving average is turning up.")
+
+alertcondition(ta.falling(flexMA, 2),
+  title="⤵️ Turning Down",
+  message="FlexMA: {{ticker}} moving average is turning down.")
