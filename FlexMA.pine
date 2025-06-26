@@ -1,0 +1,23 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified
+
+// @version=6
+// @description Flexible Moving Average with timeframe-adaptive length calculation. Supports multiple MA types (SMA, EMA, WMA, VWMA, VAWMA, CMA) and time units (Bars, Seconds, Minutes, Days) for consistent behavior across different chart timeframes.
+indicator("FlexMA", overlay = true)
+import Electrified/MovingAverages/15 as MA
+import Electrified/Time/9 as Time
+
+src = input.source(close, "Source")
+
+// Inline, grouped, and enum-based inputs
+maType = input.enum(MA.Type.SMA, "Plot", inline="FlexMA")
+timespan = input.float(5, "", minval=0.1, inline="FlexMA")
+timeUnit = input.enum(Time.Unit.Days, "", inline="FlexMA")
+
+// Calculate dynamic length based on timeframe
+maLen = Time.spanToIntLen(timespan, timeUnit)
+
+// Flexible MA calculation
+flexMA = MA.get(maType, maLen, src)
+
+plot(flexMA, "FlexMA", color=color.new(color.blue, 0), linewidth = 3)
