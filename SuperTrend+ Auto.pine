@@ -3,48 +3,70 @@
 
 // @version=6
 indicator("Auto SuperTrend+", overlay = true, format=format.price)
-import Electrified/MovingAverages/10 as MA
+import Electrified/MovingAverages/15 as MA
 import Electrified/DataCleaner/7 as DC
 import Electrified/Time/9
 
-// Constants
-const string CONFIRM = "Confirmation (Tolerance)"
+///////////////////////////////////////////////////
+// INPUT CONFIGURATION
+///////////////////////////////////////////////////
+
+///////////////////////////////////////////////////
+// PRIMARY SYSTEM: Volatility Range Measurement
+// Measures directional volatility across meaningful time periods (market structure)
 const string VOLATILITY = "Volatility"
-const string DEVIATION = "Deviation Measurement"
-const string DISPLAY = "Display"
-const string THEME = "Theme"
-
-MOVING_AVERAGE = "Moving Average Confirmation"
-SMA = 'SMA', EMA = 'EMA', WMA = 'WMA', VWMA = 'VWMA', VAWMA = 'VAWMA'
-UP = +1, DOWN = -1
-
-// Parameters
 volLen = math.min(4000, Time.spanToIntLen(
   input.float(1.0, "", minval = 0.1, group=VOLATILITY, inline = VOLATILITY),
   input.enum(Time.Unit.Days, "", group=VOLATILITY, inline = VOLATILITY,
   tooltip = "The amount of time/bars to measure the range of movement.")))
+///////////////////////////////////////////////////
+
+///////////////////////////////////////////////////
+// STATISTICAL ENGINE: Deviation Measurement Window
+// Controls the statistical analysis window for volatility calculations
+const string DEVIATION = "Deviation Measurement"
 devMul = input.float(1.5, "Level", minval = 0.1, step = 0.1, group = DEVIATION,
   tooltip = "The maximum deviation before a trend has been broken/reversed.")
+///////////////////////////////////////////////////
 devLen = Time.spanToIntLen(
   input.float(1000, "", minval = 0.1, group=DEVIATION, inline = DEVIATION),
   input.enum(Time.Unit.Bars, "", group=DEVIATION, inline = DEVIATION,
   tooltip = "The amount of time/bars to measure the deviation of the range."))
+///////////////////////////////////////////////////
+
+
+///////////////////////////////////////////////////
+// SECONDARY SYSTEM: ATR Tolerance Layer
+// Adds noise filtering based on current chart interval true range
+const string CONFIRM = "Confirmation (Tolerance)"
 atrMul = input.float(0.5, "ATR Multiple", minval = 0, step = 0.5, group=CONFIRM,
   tooltip="The tolerance to give confirmation based upon the weighted average true range.")
+///////////////////////////////////////////////////
 confirmBars = input.int(2, "Closed Bars", minval = 0, group=CONFIRM,
   tooltip="The number of closed Bars that have to exceed the super-trend value before the trend reversal is confirmed.")
+///////////////////////////////////////////////////
 displayTolerance = input.bool(false, "Show?", "Will add a line representing where the tolerance level is.", group=CONFIRM) ? display.all : display.none
+///////////////////////////////////////////////////
 
+///////////////////////////////////////////////////
+// VISUAL CONFIGURATION
+// Display and theming options for chart visualization
+const string DISPLAY = "Display"
 highlighting = input.bool(true, "Show Highlighter ?", group=DISPLAY,
   tooltip = "Paints the background depending on whether the trend is up or down.")
+///////////////////////////////////////////////////
 showLabels = input.bool(false, title="Show Reversal Labels ?", group=DISPLAY,
   tooltip = "Adds labels to identify the point of reversal.")
+///////////////////////////////////////////////////
 showMidpoint = input.bool(false, "Show Middle Point ?", group=DISPLAY,
   tooltip = "Displays the average of the upper and lower boundary.")
+///////////////////////////////////////////////////
+maxBarsVisible = input.int(500, "Visible Bars", 0, step = 10, group=DISPLAY)
+///////////////////////////////////////////////////
 
-var maxBarsVisible = input.int(500, "Visible Bars", 0, step = 10, group=DISPLAY)
-
+///////////////////////////////////////////////////
 // Theme
+const string THEME = "Theme"
 clearColor = color.new(color.gray, 100)
 upColor = input.color(color.green, "▲", group = THEME, inline = THEME)
 dnColor = input.color(color.red, "▼", group = THEME, inline = THEME)
@@ -52,26 +74,41 @@ warnColor = input.color(color.yellow, "⚠", group = THEME, inline = THEME)
 upPen = color.new(upColor, 25)
 dnPen = color.new(dnColor, 25)
 warnPen = color.new(warnColor, 25)
+///////////////////////////////////////////////////
 
-// Track bar index wihtout calling bar_index.
-var int bar = -1
-bar += 1
+///////////////////////////////////////////////////
+// SEPARATE FEATURE: MA-BASED LABEL MANAGEMENT
+///////////////////////////////////////////////////
+// This system is independent of SuperTrend calculation
+// Only affects visual label placement based on MA direction + trend + new highs/lows
 
+const string MA_CONFIRM = "Moving Average Confirmation"
 // slowMA default: WMA of 7 days.
 // This can also be set to SMA of 5 days to create a useful divergence and visualization to demonstrate the difference in the two.
 confirmMA = MA.get(
-  input.string(SMA, "", options = [SMA, EMA, WMA, VWMA, VAWMA], inline = CONFIRM, group = MOVING_AVERAGE),
+  input.enum(MA.Type.SMA, "", inline = MA_CONFIRM, group = MA_CONFIRM),
   Time.spanToIntLen(
-  input.float(5, "", inline = CONFIRM, group = MOVING_AVERAGE),
-  input.enum(Time.Unit.Days, "", inline = CONFIRM, group = MOVING_AVERAGE)),
+  input.float(5, "", inline = MA_CONFIRM, group = MA_CONFIRM),
+  input.enum(Time.Unit.Days, "", inline = MA_CONFIRM, group = MA_CONFIRM)),
   hlc3)
 confirmMA_c = ta.change(confirmMA, 2)
+
+///////////////////////////////////////////////////
+// CORE CALCULATION ENGINE
+///////////////////////////////////////////////////
+// Two-layer volatility measurement system for SuperTrend calculation
+
+// Length validation and adjustment
+// Ensure statistical analysis window is large enough for volatility measurement
 
 // Clamp/adjust lenghts that are too large
 if(volLen>devLen)
     devLen := volLen * 2
 if(devLen > 4000)
     devLen := 4000
+
+// SECONDARY SYSTEM: ATR Tolerance Calculation
+// Weighted moving average of outlier-cleaned true range for noise filtering
 
 // Determine the normalized true range (for Bars)
 atr = ta.wma(DC.naOutliers(ta.tr, devLen, 2.5), devLen)
@@ -80,6 +117,11 @@ if na(atr)
     atr := atr[1]
 tolerance = atr * atrMul
 
+// PRIMARY SYSTEM: Variable-Range Volatility Calculation
+// Measures directional volatility across meaningful time periods
+// upDev: forward-looking volatility (current high vs past low)
+// dnDev: backward-looking volatility (past high vs current low)
+
 calcDev(series float source) =>
     ta.wma(source, devLen) + ta.wma(ta.stdev(source, math.min(devLen * 2, 4000)), devLen) * devMul
 
@@ -87,8 +129,16 @@ calcDev(series float source) =>
 upDev = calcDev(math.max(high - low[volLen], 0))
 dnDev = calcDev(math.max(high[volLen] - low, 0))
 
+///////////////////////////////////////////////////
+// TREND DETECTION & STATE MANAGEMENT
+///////////////////////////////////////////////////
+// Core SuperTrend logic using two-layer volatility system
+
 // Trend
-var trend = 0
+const int UP = +1
+const int DOWN = -1
+
+var int trend = 0
 var upper = high
 var lower = low
 var brokenCount = 0
@@ -97,10 +147,18 @@ var reversalPullback = false
 warn = false
 reversal = false
 
+// Boundary breach detection (with ATR tolerance)
+// Warning conditions: price touching opposite boundary
+// Broken conditions: price exceeding boundary by tolerance amount
+
 upperWarning = close > upper
 lowerWarning = close < lower
 upperBroken = close[1] - tolerance > upper
 lowerBroken = close[1] + tolerance < lower
+
+// Trend state management and warning logic
+// UP trend: monitor for lower boundary warnings and upper boundary breaks
+// DOWN trend: monitor for upper boundary warnings and lower boundary breaks
 
 if trend == UP
     // Touching the lower boundary resets the warning condition
@@ -131,6 +189,9 @@ else
         warn := true
         brokenCount += 1
 
+// Trend reversal detection
+// Reversal confirmed when: broken count exceeds threshold OR immediate breach with tolerance
+
 if trend != UP
     // If the low exceeds the threshold then confirmation is not required.
     if brokenCount > confirmBars or low > upper + tolerance
@@ -150,11 +211,16 @@ if reversal
     wasTouched := false
     brokenCount := 0
 
+// Dynamic boundary adjustment using volatility measurements
+// Prevents boundaries from extending too far from current price action
+
 // Range adjustment
 if low[1] + tolerance < upper - dnDev
     upper := low[1] + dnDev
 if high[1] - tolerance > lower + upDev
     lower := high[1] - upDev
+
+// Signal generation based on trend state changes
 
 trendChange = ta.change(trend)
 signalUp = trend == UP and trendChange > 0
@@ -162,7 +228,19 @@ signalDn = trend == DOWN and trendChange < 0
 isTrendUp = trend[1] == UP
 isTrendDn = trend[1] == DOWN
 
+///////////////////////////////////////////////////
+// VISUALIZATION & PLOTTING
+///////////////////////////////////////////////////
+// Chart display with conditional formatting based on trend state
 
+// Performance optimization: track bar index without calling bar_index built-in
+
+// Track bar index wihtout calling bar_index.
+var int bar = -1
+bar += 1
+
+// SuperTrend boundary plots with tolerance bands
+// Upper/lower boundaries change color based on trend state and warning conditions
 
 // Plots
 plot(upper + tolerance, "Upper Tolerance",
@@ -180,15 +258,21 @@ lowerPlot = plot(lower, "Lower Boundary",
 plot(lower - tolerance, "Lower Tolerance",
   isTrendUp ? upPen : clearColor, 1, plot.style_circles, display = displayTolerance, show_last = maxBarsVisible)
 
-pullback = isTrendUp and close>lower ? close<middle : isTrendDn and close<upper ? close>middle : false
-showPullback = pullback and not reversalPullback and trend[0]==trend[1]
-if showPullback
+// Pullback detection and visual indicators
+// Pullback: price moves toward middle from boundary without full reversal
+
+isPullback = isTrendUp and close>lower ? close<middle : isTrendDn and close<upper ? close>middle : false
+pullbackDetected = isPullback and not reversalPullback and trend[0]==trend[1]
+if pullbackDetected
     reversalPullback := true
 
+// Reversal and pullback shape indicators
+// Visual markers for trend changes and pullback movements
+
 // Labels
-plotshape(showPullback and isTrendDn ? high : na, "▼ Pullback", shape.triangledown,
+plotshape(pullbackDetected and isTrendDn ? high : na, "▼ Pullback", shape.triangledown,
   location.abovebar, warnColor, -1, "", size = size.tiny, display = display.pane, show_last = maxBarsVisible)
-plotshape(showPullback and isTrendUp ? low : na, "▲ Pullback", shape.triangleup,
+plotshape(pullbackDetected and isTrendUp ? low : na, "▲ Pullback", shape.triangleup,
   location.belowbar, warnColor, -1, "", size = size.tiny, display = display.pane, show_last = maxBarsVisible)
 
 labelTextColor = showLabels ? color.black : clearColor
@@ -196,6 +280,12 @@ plotshape(signalDn[1] ? upper[1] : na, "▼ Reversal", showLabels?shape.labeldow
   location.absolute, dnColor, -1, "▼", labelTextColor, size=size.tiny, display = display.pane, show_last = maxBarsVisible)
 plotshape(signalUp[1] ? lower[1] : na, "▲ Reversal", showLabels?shape.labelup:shape.circle,
   location.absolute, upColor, -1, "▲", labelTextColor, size=size.tiny, display = display.pane, show_last = maxBarsVisible)
+
+///////////////////////////////////////////////////
+// SEPARATE FEATURE: MA-CONTROLLED LABEL SYSTEM
+///////////////////////////////////////////////////
+// Independent labeling system based on MA direction + trend + new highs/lows
+// This section does NOT affect SuperTrend calculation - visual enhancement only
 
 var hiLabel = label.new(bar, float(na), na, xloc.bar_index, yloc.abovebar, color.red, label.style_triangledown, color.gray, size.tiny)
 var loLabel = label.new(bar, float(na), na, xloc.bar_index, yloc.belowbar, color.green, label.style_triangleup, color.gray, size.tiny)
@@ -219,6 +309,12 @@ if confirmMA_c < 0 and trend < 0 and low < loLabelMark
 else if trend > 0
     loLabelMark := low
 
+///////////////////////////////////////////////////
+// VWAP ANALYSIS FEATURE
+///////////////////////////////////////////////////
+// Anchored VWAP calculations triggered by MA-confirmed highs/lows
+// Independent analysis feature for volume-weighted price levels
+
 allowFill = maxBarsVisible != 0 and bar_index > last_bar_index - maxBarsVisible
 
 vwapHiColor = color.yellow
@@ -238,19 +334,29 @@ vwapLoLoPlot = plot(vwapLoLo, "VWAP Low (of Low)", vwapLoColor, 1, plot.style_ci
 fill(vwapHiPlot, vwapHiHiPlot, vwapHi, vwapHiHi, allowFill ? color.new(vwapHiColor, 100) : clearColor, allowFill ? color.new(vwapHiColor, 65) : clearColor, "VWAP High Band", display = vwapEnabled ? display.all : display.none)
 fill(vwapLoPlot, vwapLoLoPlot, vwapLo, vwapLoLo, allowFill ? color.new(vwapLoColor, 100) : clearColor, allowFill? color.new(vwapLoColor, 65) : clearColor, "VWAP Low Band", display = vwapEnabled ? display.all : display.none)
 
+///////////////////////////////////////////////////
+// TREND HIGHLIGHTING
+///////////////////////////////////////////////////
+// Background fill areas showing current trend direction
+
 // Highlight
 highlight = plot(highlighting ? ohlc4 : na, "OHLC4", clearColor, display=display.none, show_last = maxBarsVisible)
 fill(highlight, upperPlot, upper, ohlc4, allowFill and isTrendDn ? color.new(dnColor, 75) : clearColor, allowFill and isTrendDn ? color.new(dnColor, 90) : clearColor, "▼ Highlight", display = highlighting ? display.all : display.none)
 fill(highlight, lowerPlot, lower, ohlc4, allowFill and isTrendUp ? color.new(upColor, 75) : clearColor, allowFill and isTrendUp ? color.new(upColor, 90) : clearColor, "▲ Highlight", display = highlighting ? display.all : display.none)
+
+///////////////////////////////////////////////////
+// ALERT CONDITIONS
+///////////////////////////////////////////////////
+// Comprehensive alert system for all SuperTrend+ signals
 
 // Alerts
 alertcondition(warn or reversal,
   "1) Warning", message="Auto SuperTrend+ Warning ({{ticker}} {{interval}})")
 alertcondition(reversal,
   "2) Reversal", message="Auto SuperTrend+ Reversal ({{ticker}} {{interval}})")
-alertcondition(showPullback,
+alertcondition(pullbackDetected,
   "3) Reversal+Pullback", message="Auto SuperTrend+ Reversal+Pullback ({{ticker}} {{interval}})")
-alertcondition(pullback,
+alertcondition(isPullback,
   "4) Pullback", message="Auto SuperTrend+ Pullback ({{ticker}} {{interval}})")
 alertcondition(signalUp,
   "5) Up ▲ (+)", message="Auto SuperTrend+ Up ▲ (+) ({{ticker}} {{interval}})")

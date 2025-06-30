@@ -1,0 +1,45 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Electrified
+
+// @version=5
+// @This is experimental moving average doesn't use a period/length but instead buffers the price per share and transfers that price per share at a given ratio per bar while also releasing the previous values at a decay ratio.
+indicator("Ratio Smoothed, Volume Weighted Moving Average", "RS-VWMA", overlay = true)
+import Electrified/Time/7
+
+src = input(hlcc4, "Source")
+var useTime = input.bool(false, "Use minutes instead of bars.", tooltip = "When true will tend to make the values consistent across timeframes.")
+var minutesPerBar = Time.bar() / 1000 / 60
+var m = useTime ? minutesPerBar : 1
+
+var transferRatio = input.float(10.0, "Transfer Ratio (%)", 0.00000001, 100, step = 0.1, tooltip = "The ratio at which buffered data is applied to the average.") / 100
+var retainRatio = 1 - input.float(2, "Release Ratio (%)", 0.00000001, 100, step = 0.1, tooltip = "The ratio at which data is released from the average") / 100
+
+type VWAP
+    float sum
+    float volume
+    float value
+
+vwap(float sum, float vol, float ratio = 1) =>
+    VWAP.new(ratio * sum, ratio * vol, sum/vol)
+
+sum(VWAP a, VWAP b, float ratio = 1) =>
+    s = a.sum + b.sum
+    v = a.volume + b.volume
+    vwap(s, v, ratio)
+
+var active = VWAP.new(0, 0, 0)
+var surplus = VWAP.new(0, 0, 0)
+
+getNewSurplus() =>
+    var r = math.pow(1 - transferRatio, m)
+    s = surplus.sum + src * volume
+    v = surplus.volume + volume
+    [vwap(s, v, 1 - r), vwap(s, v, r)]
+
+[transfer, remainder] = getNewSurplus()
+surplus := remainder
+
+active := sum(active, transfer, math.pow(retainRatio, m))
+
+plot(active.value, "RS-VWMA", color.rgb(155, 78, 214), 2)
+
