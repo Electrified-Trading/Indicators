@@ -1,7 +1,7 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © Electrified
 
-//@version=5
+//@version=6
 indicator("Measured Move", overlay=true)
 import Electrified/LocalLimit/6 as LL
 import Electrified/MovingAverages/10 as MA
@@ -292,10 +292,10 @@ plotPercentMoves(int[] spans, float[] deltas, int x, float y, color c) =>
     if size == 0
         size := na
     for i = 0 to size - 1
-        [dx, dy] = P.get(spans, deltas, i)      
+        [dx, dy] = P.get(spans, deltas, i)
         if isXlocBar and dx > 500
             dy := dx * dy / 500
-            dx := 500 
+            dx := 500
         if useBoxes
             addBox(x, y, dx, y * dy, cBox)
         if useLines
@@ -345,7 +345,7 @@ if barstate.islast
     array.clear(boxes)
     for e in dots
         label.delete(e)
-    array.clear(dots)    
+    array.clear(dots)
     [loSpans, loDeltas] = P.new()
     [hiSpans, hiDeltas] = P.new()
 
@@ -389,7 +389,7 @@ if barstate.islast
     addLine(activeLoX, activeLoY, loSpanAvg, activeLoY*loDeltaAvg, upColor, 4)
 
     [hiSpanAvg, hiDeltaAvg] = durationBiasedAverages(hiSpans, hiDeltas)
-    addLine(activeHiX, activeHiY, hiSpanAvg, activeHiY*hiDeltaAvg, dnColor, 4)    
+    addLine(activeHiX, activeHiY, hiSpanAvg, activeHiY*hiDeltaAvg, dnColor, 4)
 
     for i = 4 to 1
         dev = i / 2.0
@@ -397,18 +397,5 @@ if barstate.islast
         drawBoundary(activeLoX, activeLoY, sL, dL, color.new(upColor, 90))
         [sH, dH] = cleanPoints(array.copy(hiSpans), array.copy(hiDeltas), dev)
         drawBoundary(activeHiX, activeHiY, sH, dH, color.new(dnColor, 90))
-        
-        // lineWidth = 4-dev
 
-        // loSpanStdev = array.stdev(loSpans)
-        // loDeltaStdev = array.stdev(loDeltas)
-        // addLine(activeLoX, activeLoY, loSpanAvg+loSpanStdev, activeLoY*(loDeltaAvg-loDeltaStdev), upColor, lineWidth, line.style_dashed)  
-        // addLine(activeLoX, activeLoY, loSpanAvg-loSpanStdev, activeLoY*(loDeltaAvg+loDeltaStdev), upColor, lineWidth, line.style_dashed)  
-
-
-        // hiSpanStdev = array.stdev(hiSpans)
-        // hiDeltaStdev = array.stdev(hiDeltas)
-        // addLine(activeHiX, activeHiY, hiSpanAvg+hiSpanStdev, activeHiY*(hiDeltaAvg+hiDeltaStdev), dnColor, lineWidth, line.style_dashed)  
-        // addLine(activeHiX, activeHiY, hiSpanAvg-hiSpanStdev, activeHiY*(hiDeltaAvg-hiDeltaStdev), dnColor, lineWidth, line.style_dashed)  
-           
 ////////
