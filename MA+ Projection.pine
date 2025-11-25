@@ -1,11 +1,11 @@
 // This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © Electrified
 
-//@version = 5
-//@description = This indicator helps forecast the future values of a moving average by considering the effect of historical data loss. It provides a practical view on how the moving average could change as older data points drop off over time. Notable features include optional deviation bands for a more comprehensive trend analysis and the ability to smooth the average using the last source value. This tool is designed for visualizing the possible future direction of moving averages, aiding in market analysis.
+//@version=6
+//@description This indicator helps forecast the future values of a moving average by considering the effect of historical data loss. It provides a practical view on how the moving average could change as older data points drop off over time. Notable features include optional deviation bands for a more comprehensive trend analysis and the ability to smooth the average using the last source value. This tool is designed for visualizing the possible future direction of moving averages, aiding in market analysis.
 indicator("MA+ Projection", overlay = true) // thumb = 2
-import Electrified/Time/7
-import Electrified/MovingAverages/10 as MA
+import Electrified/Time/11 as Time
+import Electrified/MovingAverages/15 as MA
 import Electrified/Averages/6 as Average
 
 // Repainting note:
@@ -14,10 +14,20 @@ import Electrified/Averages/6 as Average
 // and should only calculate and render on the last bar.
 
 // Constants
-SMA = 'SMA', EMA = 'EMA', WMA = 'WMA', VWMA = 'VWMA', VAWMA = 'VAWMA'
-BARS = 'Bars', MINUTES = 'Minutes', DAYS = 'Days'
-SOURCE = 'Source', LENGTH = 'Length', PROJECT = 'Project %', DEVIATION = "Deviation"
-MOVINGAVERAGE = 'Moving Average', PROJECTION = 'Projection'
+const string SMA = 'SMA'
+const string EMA = 'EMA'
+const string WMA = 'WMA'
+const string VWMA = 'VWMA'
+const string VAWMA = 'VAWMA'
+const string BARS = 'Bars'
+const string MINUTES = 'Minutes'
+const string DAYS = 'Days'
+const string SOURCE = 'Source'
+const string LENGTH = 'Length'
+const string PROJECT = 'Project %'
+const string DEVIATION = "Deviation"
+const string MOVINGAVERAGE = 'Moving Average'
+const string PROJECTION = 'Projection'
 
 //////////////////////////////
 //// Configuration ///////////
@@ -25,10 +35,10 @@ MOVINGAVERAGE = 'Moving Average', PROJECTION = 'Projection'
 
 // Moving Avearage Configuration
 src = input.source(close, SOURCE, "", SOURCE, MOVINGAVERAGE)
-var type = input.string("SMA", "", [SMA, EMA, WMA, VWMA, VAWMA],
+maType = input.string(SMA, "", [SMA, EMA, WMA, VWMA, VAWMA],
   "The source and type of moving average to calculate", SOURCE, MOVINGAVERAGE)
 
-var length = Time.spanToIntLen(
+length = Time.spanToIntLen(
   input.int(200,LENGTH, 1, 5000, 5, "", LENGTH, MOVINGAVERAGE),
   input.string(BARS, "", [BARS, MINUTES, DAYS],
   "The length of the caclulcation.", LENGTH, MOVINGAVERAGE))
@@ -36,37 +46,39 @@ var length = Time.spanToIntLen(
 showDataStart = input.bool(false,
   "Highlight 'Start of Data'",
   "When true, highlights the previous bar before the data is being mesaured for the calculation.",
-  na, MOVINGAVERAGE)
+  group=MOVINGAVERAGE)
   and barstate.islast
 
 // Projection Configuration
-var useLastBar = input.bool(true,
+useLastBar = input.bool(true,
   "Use Last Source Value",
   "Replaces lost values with the last value of the source to smooth out the average",
-  na, PROJECTION)
+  group=PROJECTION)
 
-var projectPercent = input.float(25, PROJECT, 1, 100, 5,
+projectPercent = input.float(25, PROJECT, 1, 100, 5,
   "The amount of the measurement length to project forward.",
   PROJECT, PROJECTION)
-var int projectLen = math.floor(length * projectPercent / 100)
-var devLen = length * 10
 
-var deviationMultiple = input.float(2, DEVIATION, 0, 10, 0.5, "", DEVIATION, PROJECTION)
-var showDeviation = input.bool(true, "Show",
+const int MAX_HISTORY = 5000
+projectLen = math.min(MAX_HISTORY, math.max(1, math.floor(length * projectPercent / 100)))
+devLen = math.max(0, math.min(length * 10, MAX_HISTORY - projectLen))
+
+deviationMultiple = input.float(2, DEVIATION, 0, 10, 0.5, "", DEVIATION, PROJECTION)
+showDeviation = input.bool(true, "Show",
   "Controls the size (number of standard deviations) and visibility of the deviation 'cone'.",
   DEVIATION, PROJECTION)
 
 // Theme
-var lineColor = input.color(color.orange, "Color", "", na, "Theme")
+lineColor = input.color(color.orange, "Color", "", group="Theme")
 //////////////////////////////
 
 
-ma = MA.get(type, length, src)
+ma = MA.get(maType, length, src)
 max_bars_back(ma, 5000)
 plot(ma, "MA", lineColor, 2)
 
 getAverage(float[] values, float[] vol) =>
-    switch type
+    switch maType
         EMA => Average.exponential(values)
         WMA => Average.triangular(values),
         VWMA => Average.weighted(values, vol)
