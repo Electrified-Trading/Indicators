@@ -20,7 +20,7 @@ len = Time.spanToIntLen(
 maxOutlier = input.float(3.5,
   "Max Outlier",
   tooltip = "The maximum outlier level to allow when calculating the average true range.",
-  group = ATR),
+  group = ATR)
 
 smooth = input.int(100,
   "Smoothing",
